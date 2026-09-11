@@ -4,6 +4,7 @@ import { useToast } from '../context/ToastContext';
 import { todayStr } from '../lib/format';
 import { summarizeInvoices } from '../lib/calc';
 import { inr } from '../lib/format';
+import { billNoOf } from '../lib/bill';
 import InvoiceTable from '../components/InvoiceTable';
 
 function RepBlock({ s }) {
@@ -49,11 +50,13 @@ export default function Reports() {
   function downloadCSV() {
     const list = getFiltered();
     if (!list.length) { toast('इस Filter में कोई बिल नहीं मिला'); return; }
-    const headers = ['Date', 'Invoice ID', 'Type', 'Bill Mode', 'Customer', 'Phone', 'Subtotal', 'Making', 'Discount', 'GST %', 'GST Amount', 'Exchange Value', 'Total', 'Paid', 'Due'];
+    const headers = ['Date', 'Bill No', 'Type', 'Bill Mode', 'Customer', 'Phone', 'PAN', 'Subtotal', 'Making', 'Hallmark', 'Discount', 'GST %', 'GST Amount', 'Exchange Value', 'Round Off', 'Total', 'Paid', 'Payment Modes', 'Due'];
     const rows = list.map((i) => [
-      i.date, i.id.slice(-8).toUpperCase(), i.type, (i.gstMode === 'nongst' ? 'Non-GST' : 'GST'),
-      i.customerName, i.customerPhone || '', i.subtotal.toFixed(2), i.making.toFixed(2), i.discount.toFixed(2),
-      i.gstPct, i.gst.toFixed(2), (i.exchange ? i.exchange.value : 0).toFixed(2), i.total.toFixed(2), i.paid.toFixed(2), i.due.toFixed(2),
+      i.date, billNoOf(i), i.type, (i.gstMode === 'nongst' ? 'Non-GST' : 'GST'),
+      i.customerName, i.customerPhone || '', i.customerPan || '', i.subtotal.toFixed(2), i.making.toFixed(2),
+      Number(i.hallmark || 0).toFixed(2), i.discount.toFixed(2),
+      i.gstPct, i.gst.toFixed(2), (i.exchange ? i.exchange.value : 0).toFixed(2), Number(i.roundOff || 0).toFixed(2),
+      i.total.toFixed(2), i.paid.toFixed(2), (i.payments || []).map((p) => `${p.mode} ${p.amount}`).join(' | '), i.due.toFixed(2),
     ]);
     const csvLines = [headers.join(','), ...rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))];
     const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });

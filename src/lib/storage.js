@@ -13,7 +13,7 @@ export function DEFAULT_SETTINGS() {
     shopAddress: 'शाहपुर रोड, शांति नगर, खतखरी, तिवारी होटल के बगल में',
     shopPhone: '9131154535',
     shopPhone2: '7049749596',
-    gstin: '',
+    gstin: '23KNFPS7175N1Z2',
     jurisdiction: 'Mauganj',
     categories: 'GOLD | DIAMOND | SILVER | GEMS | GOLD LOAN',
     hsn: '7113',
@@ -21,5 +21,7 @@ export function DEFAULT_SETTINGS() {
     footerNote: 'जेवर टूटने की कोई भी गारंटी नहीं होगी।',
     billTemplate: 'slip',
     websiteUrl: '',
+    upiId: 'dhirendrasoni1292@okicici',
+    upiName: 'Dhirendra Soni',
   };
 }

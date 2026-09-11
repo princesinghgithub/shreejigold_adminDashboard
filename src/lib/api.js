@@ -138,8 +138,9 @@ export const api = {
   // ---- बिल ----
   createInvoice: (inv) => post('/invoices', inv),
   deleteInvoice: (id) => del('/invoices/' + id),
-  recordPayment: (id, amount, note) => post('/invoices/' + id + '/payment', { amount, note }),
+  recordPayment: (id, amount, note, mode) => post('/invoices/' + id + '/payment', { amount, note, mode }),
   invoiceByBarcode: (code) => get('/invoices/barcode/' + encodeURIComponent(code)),
+  invoicesByBillNo: (no) => get('/invoices' + qs({ billNo: no, limit: 5 })),
   searchInvoices: (q) => get('/invoices' + qs({ search: q, limit: 10 })),
 
   // ---- ऑफर ----

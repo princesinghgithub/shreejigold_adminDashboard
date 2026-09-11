@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react';
 import JsBarcode from 'jsbarcode';
 import { fmtDate, inr } from '../lib/format';
 import { amountInWords } from '../lib/words';
-import { useBillQr } from '../lib/useBillQr';
+import { useBillQr, useUpiQr } from '../lib/useBillQr';
+import { billNoOf, fmtTime, karatLabel, paymentRows } from '../lib/bill';
 import { LogoIcon } from './Logo';
 import { DEFAULT_TERMS } from '../lib/billTerms';
 
@@ -14,24 +15,29 @@ function num(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+const amt2 = (v) => num(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 /**
- * Make वाले कॉलम में क्या लिखा जाए. बिल में मजदूरी की निकली हुई रकम सेव होती है,
- * उसकी दर नहीं — इसलिए दर वापस निकाल लेते हैं (11% / ₹350 प्रति ग्राम / सीधी रकम).
+ * Make वाले कॉलम में क्या लिखा जाए. नए बिलों में डाली गई दर (makingRate) सेव होती है;
+ * पुराने बिलों में सिर्फ निकली हुई रकम — तब दर वापस निकाल लेते हैं (11% / ₹350 प्रति ग्राम / सीधी रकम).
  */
 function makingLabel(it) {
   const amt = num(it.making);
-  const w = num(it.weight);
-  const mv = num(it.metalVal);
-  if (it.makingType === 'pct' && mv > 0) return Math.round((amt / mv) * 1000) / 10 + '%';
-  if (it.makingType === 'perg' && w > 0) return '₹' + Math.round(amt / w).toLocaleString('en-IN') + '/g';
+  const hasRate = it.makingRate !== undefined && it.makingRate !== null;
+  if (it.makingType === 'pct') {
+    if (hasRate) return num(it.makingRate) + '%';
+    if (num(it.metalVal) > 0) return Math.round((amt / num(it.metalVal)) * 1000) / 10 + '%';
+  }
+  if (it.makingType === 'perg') {
+    if (hasRate) return '₹' + num(it.makingRate).toLocaleString('en-IN') + '/g';
+    if (num(it.weight) > 0) return '₹' + Math.round(amt / num(it.weight)).toLocaleString('en-IN') + '/g';
+  }
   return inr(amt);
 }
 
-/**
- * बिल पर छपने वाला per-gram भाव. बिल में rate अलग से सेव नहीं होता, इसलिए
- * metalVal से वापस निकालते हैं — यही उस दिन का लगा हुआ भाव है (purity समेत).
- */
+/** बिल पर छपने वाला per-gram भाव (purity समेत). पुराने बिलों में rate सेव नहीं — metalVal से निकालते हैं */
 function effectiveRate(it) {
+  if (num(it.rate) > 0) return num(it.rate);
   const w = num(it.weight);
   return w > 0 ? num(it.metalVal) / w : 0;
 }
@@ -42,17 +48,25 @@ export default function InvoiceSlip({ inv, settings }) {
   const isPurchase = inv.type === 'purchase';
   const barcode = inv.barcode || String(inv.id).replace(/\D/g, '').slice(-12).padStart(12, '0');
   const qr = useBillQr(settings, barcode);
+  const upiQr = useUpiQr(settings);
 
   const title = isNonGst ? 'ESTIMATE' : isPurchase ? 'PURCHASE VOUCHER' : 'SALES VOUCHER';
   const subTitle = isNonGst ? 'Non-GST Estimate' : isPurchase ? 'Purchase' : 'Tax Invoice';
 
   const items = inv.items || [];
   const blanks = Math.max(0, MIN_ROWS - items.length);
+  const hasHm = items.some((it) => num(it.hallmark) > 0);
+  const colCount = hasHm ? 10 : 9;
   const exchangeVal = num(inv.exchange && inv.exchange.value);
+  const hallmarkTotal = num(inv.hallmark) || items.reduce((s, it) => s + num(it.hallmark), 0);
   const halfGst = num(inv.gst) / 2;
   const halfPct = num(inv.gstPct) / 2;
-  const taxable = num(inv.subtotal) + num(inv.making) - num(inv.discount);
-  const totalWeight = items.reduce((s, it) => s + num(it.weight), 0);
+  const taxable = num(inv.subtotal) + num(inv.making) + hallmarkTotal - num(inv.discount);
+  const grossTotal = items.reduce((s, it) => s + num(it.grossWeight || it.weight), 0);
+  const netTotal = items.reduce((s, it) => s + num(it.weight), 0);
+  const roundOff = num(inv.roundOff);
+  const pays = paymentRows(inv);
+  const time = fmtTime(inv.createdAt);
 
   const categories = settings.categories || 'GOLD | DIAMOND | SILVER | GEMS | GOLD LOAN';
   const terms = settings.terms && settings.terms.length ? settings.terms : DEFAULT_TERMS;
@@ -106,19 +120,25 @@ export default function InvoiceSlip({ inv, settings }) {
       {/* ── लाल पट्टी: क्या-क्या मिलता है ── */}
       <div className="slip-cats">{categories}</div>
 
-      {/* ── बिल नंबर / तारीख / ग्राहक ── */}
+      {/* ── बिल नंबर / तारीख-समय / ग्राहक ── */}
       <div className="slip-meta">
         <div className="slip-meta-row">
-          <div><span className="lbl">Bill No.</span> <b>{String(inv.id).slice(-6).toUpperCase()}</b></div>
+          <div><span className="lbl">Bill No.</span> <b>{billNoOf(inv)}</b></div>
           <div className="slip-meta-mid">{subTitle}</div>
-          <div><span className="lbl">Date :</span> <b>{fmtDate(inv.date)}</b></div>
+          <div>
+            <span className="lbl">Date :</span> <b>{fmtDate(inv.date)}</b>
+            {time ? <>&nbsp; <span className="lbl">Time :</span> <b>{time}</b></> : null}
+          </div>
         </div>
         <div className="slip-meta-row">
           <div><span className="lbl">Name :</span> <b>{inv.customerName || 'Walk-in Customer'}</b></div>
           <div>{settings.gstin ? <span className="slip-gstin">GSTIN — {settings.gstin}</span> : null}</div>
         </div>
         <div className="slip-meta-row">
-          <div>{inv.customerAddress || ''}</div>
+          <div>
+            {inv.customerAddress || ''}
+            {inv.customerPan ? <>{inv.customerAddress ? <>&nbsp; </> : null}<span className="lbl">PAN :</span> <b>{inv.customerPan}</b></> : null}
+          </div>
           <div>{inv.customerPhone ? <span><span className="lbl">Mob :</span> {inv.customerPhone}</span> : null}</div>
         </div>
       </div>
@@ -129,10 +149,13 @@ export default function InvoiceSlip({ inv, settings }) {
           <tr>
             <th className="c-sn">#</th>
             <th className="c-item">Item</th>
+            <th className="c-huid">HUID</th>
             <th className="c-hsn">HSN</th>
-            <th className="c-num">Wt (g)</th>
+            <th className="c-num">Gross Wt</th>
+            <th className="c-num">Net Wt</th>
             <th className="c-num">Rate</th>
             <th className="c-num">Make</th>
+            {hasHm && <th className="c-num">Hallmark</th>}
             <th className="c-num c-amt">Rs</th>
           </tr>
         </thead>
@@ -146,30 +169,40 @@ export default function InvoiceSlip({ inv, settings }) {
                   {settings.hallmarkLabel || 'Hallmark'} {num(it.purity)} · {it.metal}
                 </span>
               </td>
+              <td className="c-huid">{it.huid || '—'}</td>
               <td className="c-hsn">{hsn}</td>
+              <td className="c-num">{num(it.grossWeight || it.weight).toFixed(3)}</td>
               <td className="c-num">{num(it.weight).toFixed(3)}</td>
-              <td className="c-num">{Math.round(effectiveRate(it)).toLocaleString('en-IN')}</td>
+              <td className="c-num">
+                {effectiveRate(it).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                <span className="it-sub">{karatLabel(it.metal, it.purity)}</span>
+              </td>
               <td className="c-num">{makingLabel(it)}</td>
-              <td className="c-num c-amt">{Math.round(num(it.itemTotal)).toLocaleString('en-IN')}</td>
+              {hasHm && <td className="c-num">{num(it.hallmark) > 0 ? amt2(it.hallmark) : '—'}</td>}
+              <td className="c-num c-amt">{amt2(it.itemTotal)}</td>
             </tr>
           ))}
           {Array.from({ length: blanks }).map((_, i) => (
             <tr key={'b' + i} className="slip-blank">
-              <td className="c-sn">&nbsp;</td><td /><td /><td /><td /><td /><td />
+              {Array.from({ length: colCount }).map((__, j) => (
+                <td key={j} className={j === 0 ? 'c-sn' : undefined}>{j === 0 ? ' ' : null}</td>
+              ))}
             </tr>
           ))}
         </tbody>
         <tfoot>
           <tr>
-            <td colSpan={3} className="c-item"><b>कुल {items.length} आइटम</b></td>
-            <td className="c-num"><b>{totalWeight.toFixed(3)}</b></td>
+            <td colSpan={4} className="c-item"><b>कुल {items.length} आइटम</b></td>
+            <td className="c-num"><b>{grossTotal.toFixed(3)}</b></td>
+            <td className="c-num"><b>{netTotal.toFixed(3)}</b></td>
             <td /><td />
-            <td className="c-num c-amt"><b>{Math.round(num(inv.subtotal) + num(inv.making)).toLocaleString('en-IN')}</b></td>
+            {hasHm && <td className="c-num"><b>{amt2(hallmarkTotal)}</b></td>}
+            <td className="c-num c-amt"><b>{amt2(num(inv.subtotal) + num(inv.making) + hallmarkTotal)}</b></td>
           </tr>
         </tfoot>
       </table>
 
-      {/* ── नीचे: शर्तें (बाएँ) और जोड़ (दाएँ) ── */}
+      {/* ── नीचे: भुगतान, शब्दों में रकम (बाएँ) और जोड़ (दाएँ) ── */}
       <div className="slip-bottom">
         <div className="slip-left">
           {exchangeVal > 0 && (
@@ -179,6 +212,14 @@ export default function InvoiceSlip({ inv, settings }) {
                 {num(inv.exchange.weight).toFixed(3)} g @ {num(inv.exchange.purity)}% ·
                 कटौती {num(inv.exchange.deduct)}% = <b>{inr(exchangeVal)}</b>
               </div>
+            </div>
+          )}
+          {pays.length > 0 && (
+            <div className="slip-pay">
+              <div className="slip-pay-head">भुगतान का तरीका / Mode of Payment</div>
+              {pays.map((p) => (
+                <div key={p.label}><span>{p.label}</span><span>{inr(p.amount)}</span></div>
+              ))}
             </div>
           )}
           <div className="slip-words">
@@ -193,6 +234,16 @@ export default function InvoiceSlip({ inv, settings }) {
                 <span>मोबाइल से स्कैन<br />करके बिल जाँचें</span>
               </div>
             ) : null}
+            {upiQr ? (
+              <div className="slip-upi">
+                <img src={upiQr} alt="UPI से भुगतान" />
+                <span>
+                  <b>UPI से भुगतान</b><br />
+                  किसी भी UPI ऐप से<br />स्कैन करें<br />
+                  <span className="upi-id">{settings.upiId}</span>
+                </span>
+              </div>
+            ) : null}
             <div className="slip-hallmark">
               <div className="hm-tri">▲</div>
               <div className="hm-txt">B.I.S.<br />HALLMARK</div>
@@ -204,6 +255,7 @@ export default function InvoiceSlip({ inv, settings }) {
           <div className="slip-sum">
             <div><span>धातु मूल्य / Metal Value</span><span>{inr(inv.subtotal)}</span></div>
             <div><span>मजदूरी / Making</span><span>{inr(inv.making)}</span></div>
+            {hallmarkTotal > 0 && <div><span>हॉलमार्क / Hallmark</span><span>{inr(hallmarkTotal)}</span></div>}
             <div><span>छूट / Discount</span><span>− {inr(inv.discount)}</span></div>
             <div className="sep"><span>Taxable Value</span><span>{inr(taxable)}</span></div>
             {isNonGst ? (
@@ -216,6 +268,9 @@ export default function InvoiceSlip({ inv, settings }) {
             )}
             {exchangeVal > 0 && (
               <div><span>Exchange समायोजन</span><span>− {inr(exchangeVal)}</span></div>
+            )}
+            {Math.abs(roundOff) >= 0.005 && (
+              <div><span>Round Off</span><span>{roundOff > 0 ? '+ ' : '− '}{inr(Math.abs(roundOff))}</span></div>
             )}
             <div className="grand"><span>कुल राशि</span><span>{inr(inv.total)}</span></div>
             <div><span>प्राप्त / Paid</span><span>{inr(inv.paid)}</span></div>

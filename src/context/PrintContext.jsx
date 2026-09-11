@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import jsPDF from 'jspdf';
 import InvoiceView from '../components/InvoiceView';
 import InvoiceSlip from '../components/InvoiceSlip';
+import { billNoOf } from '../lib/bill';
 
 const PrintContext = createContext(null);
 
@@ -51,7 +52,7 @@ export function PrintProvider({ children }) {
         window.print();
         setTimeout(() => setTarget(null), 400);
       } else if (target.mode === 'pdf') {
-        saveAsPdf(areaRef.current, 'Bill_' + String(target.inv.id).slice(-8) + '.pdf')
+        saveAsPdf(areaRef.current, 'Bill_' + billNoOf(target.inv) + '_' + target.inv.date + '.pdf')
           .catch((err) => {
             console.error('[pdf]', err);
             window.alert('PDF नहीं बन सकी — Print दबाकर "Save as PDF" चुनें');

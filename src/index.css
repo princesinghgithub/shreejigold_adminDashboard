@@ -130,7 +130,8 @@ tr:last-child td{border-bottom:none;}
 .tab{padding:9px 16px;border:none;background:transparent;font-size:13.5px;color:var(--ink-soft);font-weight:600;border-bottom:2px solid transparent;}
 .tab.active{color:var(--maroon);border-bottom-color:var(--maroon);}
 
-.item-row{display:grid;grid-template-columns:1.4fr .8fr .8fr .8fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:14px;padding-bottom:14px;border-bottom:1px dashed var(--line);}
+.item-row{display:grid;grid-template-columns:1.25fr .75fr .8fr .75fr .75fr .95fr .75fr .95fr .7fr auto;gap:8px;align-items:end;margin-bottom:14px;padding-bottom:14px;border-bottom:1px dashed var(--line);}
+@media(max-width:1250px){.item-row{grid-template-columns:repeat(5,1fr);}}
 @media(max-width:900px){.item-row{grid-template-columns:1fr 1fr;}}
 @media(max-width:560px){.item-row{grid-template-columns:1fr;}.item-row .icon-btn,.item-row>button{justify-self:start;}}
 .summary-line{display:flex;justify-content:space-between;padding:6px 0;font-size:13.8px;}
@@ -209,7 +210,7 @@ img,svg{max-width:100%;}
 .slip-meta{padding:8px 14px 6px;font-size:12px;}
 .slip-meta-row{display:flex;justify-content:space-between;gap:12px;padding:2.5px 0;flex-wrap:wrap;}
 .slip-meta-mid{color:#6b5a48;font-style:italic;}
-.slip-gstin{font-family:Georgia,serif;font-style:italic;font-size:11px;color:var(--maroon);}
+.slip-gstin{font-size:11.5px;font-weight:700;letter-spacing:.3px;color:var(--maroon);font-variant-numeric:lining-nums;}
 
 .slip-table{width:100%;border-collapse:collapse;font-size:12px;margin:0;}
 .slip-table th{background:var(--sandal);color:#3a2b1c;font-weight:700;font-size:11.5px;
@@ -222,6 +223,8 @@ img,svg{max-width:100%;}
 .slip-table .c-amt{font-weight:700;width:88px;}
 .slip-table .it-name{display:block;font-weight:600;}
 .slip-table .it-sub{display:block;font-size:10px;color:#8a7a63;}
+.slip-table .c-huid{width:62px;text-align:center;font-family:Consolas,'Courier New',monospace;font-size:11px;letter-spacing:.4px;}
+.slip-table .c-num .it-sub{font-size:9px;}
 .slip-blank td{height:22px;}
 
 .slip-bottom{display:flex;gap:14px;padding:10px 14px 4px;align-items:flex-start;flex-wrap:wrap;}
@@ -231,6 +234,9 @@ img,svg{max-width:100%;}
   font-size:11.5px;margin-bottom:8px;}
 .slip-words{font-size:12px;line-height:1.5;margin-bottom:10px;}
 .slip-words b{color:var(--maroon);}
+.slip-pay{border:1px solid #e5d7b8;border-radius:5px;overflow:hidden;font-size:11.5px;margin-bottom:8px;max-width:300px;}
+.slip-pay-head{background:var(--sandal);font-weight:700;font-size:10.5px;padding:3px 9px;color:#3a2b1c;}
+.slip-pay>div:not(.slip-pay-head){display:flex;justify-content:space-between;gap:10px;padding:2px 9px;font-variant-numeric:tabular-nums;}
 .slip-codes{display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
 .slip-barcode{max-width:190px;}
 .slip-hallmark{display:flex;align-items:center;gap:5px;color:var(--maroon);}
@@ -314,11 +320,23 @@ img,svg{max-width:100%;}
 .pay-form{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
 .pay-form input{flex:1 1 170px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:var(--cream);}
 .pay-form .btn{padding:9px 16px;font-size:13.5px;}
+.pay-form select{flex:0 1 160px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:var(--cream);}
+.pay-modes-title{font-weight:600;font-size:13.5px;margin:6px 0 8px;color:var(--maroon-dark);}
+.pay-modes{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:10px;}
+.bill-warn{background:#FBE7E7;color:var(--red);border-radius:8px;padding:8px 12px;font-size:13px;margin:0 0 10px;}
 /* ---- बिल पर QR (ग्राहक बिल जाँच सके) ---- */
 .slip-qr{display:flex;align-items:center;gap:6px;font-size:9.5px;color:#6b5a48;line-height:1.3;}
 .slip-qr img{width:58px;height:58px;}
 .inv-qr{display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-top:6px;font-size:10px;color:#777;line-height:1.3;text-align:left;}
 .inv-qr img{width:64px;height:64px;}
+/* ---- बिल पर दुकान का UPI QR (ग्राहक सीधे भुगतान कर सके) ---- */
+.slip-upi{display:flex;align-items:center;gap:7px;font-size:9.5px;color:#4a3d30;line-height:1.35;}
+.slip-upi img{width:76px;height:76px;}
+.slip-upi b{color:var(--maroon);font-size:10.5px;}
+.slip-upi .upi-id{font-family:Consolas,'Courier New',monospace;font-size:9px;color:#6b5a48;}
+.inv-upi{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:11px;color:#555;line-height:1.4;}
+.inv-upi img{width:84px;height:84px;}
+.inv-upi b{color:#6B1E23;}
 
 /* ---- Users / Staff ---- */
 .badge-owner{background:#F3E2B8;color:#7a5410;}

@@ -26,6 +26,8 @@ const SHOP_FIELDS = [
   { key: 'hallmarkLabel', label: 'आइटम के नीचे लिखा शब्द (जैसे Hallmark)' },
   { key: 'footerNote', label: 'नीचे की चेतावनी' },
   { key: 'websiteUrl', label: 'दुकान की Website का पता — भरने पर बिल पर QR छपेगा, ग्राहक स्कैन करके बिल जाँच सकेगा (जैसे https://shreejigold.shop)' },
+  { key: 'upiId', label: 'UPI ID — हर बिल पर इसी का भुगतान QR छपेगा (खाली छोड़ें तो QR नहीं छपेगा)' },
+  { key: 'upiName', label: 'UPI पर दिखने वाला नाम (जैसे Dhirendra Soni)' },
 ];
 
 export default function Rates() {
@@ -70,33 +72,43 @@ export default function Rates() {
   function previewBill() {
     const rate = Number(gold) || 7250;
     const srate = Number(silver) || 92;
-    const mk = (name, metal, weight, purity, makingType, making) => {
-      const r = metal === 'Gold' ? rate : srate;
-      const metalVal = weight * (purity / 100) * r;
-      const m = makingType === 'perg' ? making * weight
-        : makingType === 'pct' ? metalVal * (making / 100) : making;
-      return { name, metal, weight, purity, makingType, making: m, metalVal, itemTotal: metalVal + m };
+    const mk = (name, metal, weight, purity, makingType, makingRate, extra = {}) => {
+      const r = (metal === 'Gold' ? rate : srate) * (purity / 100);
+      const metalVal = weight * r;
+      const m = makingType === 'perg' ? makingRate * weight
+        : makingType === 'pct' ? metalVal * (makingRate / 100) : makingRate;
+      const hallmark = extra.hallmark || 0;
+      return {
+        name, metal, huid: '', grossWeight: weight, weight, purity, rate: r,
+        makingType, makingRate, making: m, hallmark, metalVal, itemTotal: metalVal + m + hallmark, ...extra,
+      };
     };
     const items = [
-      mk('हार (Haar)', 'Gold', 19.835, 91.6, 'pct', 11),
-      mk('अंगूठी (Ladies ring)', 'Gold', 4.569, 91.6, 'pct', 11),
-      mk('टॉप्स झुमकी', 'Gold', 11.407, 91.6, 'perg', 400),
+      mk('हार (Haar)', 'Gold', 19.835, 91.6, 'pct', 11, { huid: 'VGXVXH', grossWeight: 20.41, hallmark: 45 }),
+      mk('अंगूठी (Ladies ring)', 'Gold', 4.569, 91.6, 'pct', 11, { huid: 'FCVFJ5', hallmark: 45 }),
+      mk('टॉप्स झुमकी', 'Gold', 11.407, 91.6, 'perg', 400, { huid: 'IUGU84', grossWeight: 11.62, hallmark: 45 }),
       mk('चांदी पायल', 'Silver', 120, 92.5, 'flat', 600),
     ];
     const subtotal = items.reduce((s, i) => s + i.metalVal, 0);
     const making = items.reduce((s, i) => s + i.making, 0);
-    const discount = Math.round((subtotal + making) * 0.02);
-    const afterDisc = subtotal + making - discount;
+    const hallmark = items.reduce((s, i) => s + i.hallmark, 0);
+    const discount = Math.round((subtotal + making + hallmark) * 0.02);
+    const afterDisc = subtotal + making + hallmark - discount;
     const gstPct = Number(gst) || 0;
     const gstAmt = afterDisc * (gstPct / 100);
-    const total = Math.round(afterDisc + gstAmt);
+    const exact = afterDisc + gstAmt;
+    const total = Math.round(exact);
+    const cash = Math.round(total * 0.3);
+    const upi = Math.round(total * 0.3);
     const inv = {
-      id: 'inv_preview', type: 'sale', gstMode: 'gst', barcode: genBarcode(), date: todayStr(),
+      id: 'inv_preview', billNo: '257', type: 'sale', gstMode: 'gst', barcode: genBarcode(), date: todayStr(),
+      createdAt: new Date().toISOString(),
       customerName: 'नमूना ग्राहक', customerPhone: '9876543210',
-      customerAddress: 'मौगंज, मध्य प्रदेश',
+      customerAddress: 'मौगंज, मध्य प्रदेश', customerPan: 'ABCDE1234F',
       items, exchange: { weight: 0, purity: 0, deduct: 0, rate: 0, value: 0 },
-      subtotal, making, discount, gstPct, gst: gstAmt,
-      total, paid: Math.round(total * 0.6), due: total - Math.round(total * 0.6),
+      subtotal, making, hallmark, discount, gstPct, gst: gstAmt, roundOff: total - exact,
+      total, paid: cash + upi, due: total - cash - upi,
+      payments: [{ mode: 'cash', amount: cash }, { mode: 'upi', amount: upi }],
     };
     openModal(<InvoiceModal inv={inv} settings={{ ...shop, gst: gstPct }} />, true);
   }

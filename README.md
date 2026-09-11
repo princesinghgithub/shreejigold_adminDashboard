@@ -24,6 +24,20 @@ Preview करने के लिए (बिल्ड के बाद):
 npm run preview
 ```
 
+## PWA (मोबाइल/कंप्यूटर पर ऐप की तरह Install)
+
+बिल्ड में `sw.js` (service worker) और `manifest.webmanifest` अपने आप बनते हैं (`vite-plugin-pwa`, सेटिंग `vite.config.js` में)।
+
+- **Android (Chrome):** साइट खोलें → मेन्यू (⋮) → **Install app / Add to Home screen**
+- **iPhone (Safari):** Share बटन → **Add to Home Screen**
+- **कंप्यूटर (Chrome/Edge):** पते वाली पट्टी में install (⊕) आइकन
+
+ध्यान रखें:
+- Install सिर्फ **HTTPS** पर (या `localhost` पर) होता है। `npm run dev` में service worker बंद रहता है, जाँचने के लिए `npm run build` और फिर `npm run preview` चलाएँ।
+- सिर्फ ऐप का ढाँचा cache होता है। बिल, रेट, स्टॉक जैसा डेटा (`/api`) हमेशा सर्वर से ताज़ा आता है, इसलिए बिलिंग के लिए इंटरनेट/backend चालू होना ज़रूरी है।
+- नया version deploy करने पर ऐप अगली बार खोलने पर अपने आप नया हो जाता है।
+- आइकन `public/icons/` में हैं (लोगो का SG वाला हिस्सा)। लोगो बदलें तो ये भी बदलने होंगे।
+
 ## Features
 
 - Password login (केवल Soni Ji के लिए, पहली बार में सेट होता है)

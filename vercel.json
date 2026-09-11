@@ -3,6 +3,12 @@
   "buildCommand": "vite build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/((?!assets/|shreeji.png|favicon).*)", "destination": "/index.html" }
+    { "source": "/((?!assets/|icons/|shreeji.png|favicon|sw.js|workbox-|registerSW.js|manifest.webmanifest).*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(sw.js|registerSW.js|manifest.webmanifest)",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+    }
   ]
 }

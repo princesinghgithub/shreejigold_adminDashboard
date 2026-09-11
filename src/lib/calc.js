@@ -1,3 +1,5 @@
+// backend के src/lib/calc.js जैसा ही हिसाब — दोनों तरफ एक जैसा total निकले.
+
 export function computeItemValue(item, rates) {
   const rate = item.metal === 'Gold' ? (rates.gold || 0) : (rates.silver || 0);
   const w = Number(item.weight) || 0;
@@ -8,7 +10,8 @@ export function computeItemValue(item, rates) {
   if (item.makingType === 'perg') making = mk * w;
   else if (item.makingType === 'pct') making = metalVal * (mk / 100);
   else making = mk;
-  return { metalVal, making, itemTotal: metalVal + making };
+  const hallmark = Number(item.hallmark) || 0;
+  return { rate: rate * (p / 100), metalVal, making, hallmark, itemTotal: metalVal + making + hallmark };
 }
 
 export function computeExchangeValue(ex) {
@@ -20,20 +23,24 @@ export function computeExchangeValue(ex) {
 }
 
 export function summarizeBill(items, rates, exchange, discType, discVal, gstPct, paid) {
-  let subtotal = 0, makingTotal = 0;
+  let subtotal = 0, makingTotal = 0, hallmarkTotal = 0;
   items.forEach((it) => {
     const c = computeItemValue(it, rates);
     subtotal += c.metalVal;
     makingTotal += c.making;
+    hallmarkTotal += c.hallmark;
   });
-  const gross = subtotal + makingTotal;
+  const gross = subtotal + makingTotal + hallmarkTotal;
   const discount = discType === 'pct' ? gross * (Number(discVal) / 100) : Number(discVal) || 0;
   const afterDisc = Math.max(0, gross - discount);
   const gstAmt = afterDisc * ((Number(gstPct) || 0) / 100);
   const exchangeVal = computeExchangeValue(exchange);
-  const total = afterDisc + gstAmt - exchangeVal;
+  // बिल की रकम पूरे रुपये में — पैसे का फ़र्क "Round Off" में
+  const exact = afterDisc + gstAmt - exchangeVal;
+  const total = Math.round(exact);
+  const roundOff = total - exact;
   const due = total - (Number(paid) || 0);
-  return { subtotal, makingTotal, gross, discount, afterDisc, gstPct: Number(gstPct) || 0, gstAmt, exchangeVal, paid: Number(paid) || 0, total, due };
+  return { subtotal, makingTotal, hallmarkTotal, gross, discount, afterDisc, gstPct: Number(gstPct) || 0, gstAmt, exchangeVal, roundOff, paid: Number(paid) || 0, total, due };
 }
 
 export function summarizeInvoices(list) {

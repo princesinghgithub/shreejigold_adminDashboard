@@ -5,9 +5,15 @@ import { useModal } from '../context/ModalContext';
 import { todayStr, inr } from '../lib/format';
 import { api } from '../lib/api';
 import { summarizeBill } from '../lib/calc';
+import { PAYMENT_MODES, CASH_LIMIT, PAN_LIMIT } from '../lib/bill';
 import InvoiceModal from '../components/InvoiceModal';
 
-const emptyItem = () => ({ name: '', metal: 'Gold', weight: '', purity: 100, makingType: 'flat', making: 0 });
+const emptyItem = () => ({
+  name: '', metal: 'Gold', huid: '', grossWeight: '', weight: '', purity: 100, makingType: 'flat', making: 0, hallmark: 0,
+});
+const MAKING_LABEL = { perg: 'Making (₹/g)', pct: 'Making (%)', flat: 'Making (₹)' };
+const HUID_RX = /^[A-Z0-9]{6}$/;
+const PAN_RX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
 export default function Billing() {
   const { db, mutate } = useData();
@@ -19,6 +25,8 @@ export default function Billing() {
   const [custId, setCustId] = useState('');
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
+  const [address, setAddress] = useState('');
+  const [pan, setPan] = useState('');
   const [date, setDate] = useState(todayStr());
   const [items, setItems] = useState([emptyItem()]);
   const [saving, setSaving] = useState(false);
@@ -31,7 +39,7 @@ export default function Billing() {
   const [discType, setDiscType] = useState('flat');
   const [discVal, setDiscVal] = useState(0);
   const [gstVal, setGstVal] = useState(db.settings.gst);
-  const [paidVal, setPaidVal] = useState(0);
+  const [pay, setPay] = useState({}); // { cash: '50000', upi: '20000' }
 
   function updateItem(idx, patch) {
     setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
@@ -45,8 +53,14 @@ export default function Billing() {
     else setGstVal(db.settings.gst);
   }
 
+  const paidVal = PAYMENT_MODES.reduce((s, m) => s + (Number(pay[m.id]) || 0), 0);
+  const cashVal = Number(pay.cash) || 0;
+  const panUp = pan.trim().toUpperCase();
+  const custPan = custId ? ((db.customers.find((c) => c.id === custId) || {}).pan || '') : '';
   const exchange = { weight: exWeight, purity: exPurity, deduct: exDeduct, rate: exRate };
   const sums = summarizeBill(items, db.rates, exchange, discType, discVal, gstVal, paidVal);
+  const cashWarn = billType === 'sale' && cashVal >= CASH_LIMIT;
+  const panWarn = sums.total > PAN_LIMIT && !(panUp || custPan);
 
   async function finalizeBill() {
     const validItems = items.filter((it) => it.name && Number(it.weight) > 0);
@@ -54,21 +68,33 @@ export default function Billing() {
     // 91.6 की जगह 916 जैसी गलती पर बिल 10 गुना बन जाता — पहले ही रोकें
     const badPurity = validItems.find((it) => !(Number(it.purity) > 0 && Number(it.purity) <= 100));
     if (badPurity) { toast(`"${badPurity.name}" की Purity 0 से 100% के बीच डालें (जैसे 22K = 91.6)`); return; }
+    const badHuid = validItems.find((it) => it.huid && !HUID_RX.test(it.huid.trim().toUpperCase()));
+    if (badHuid) { toast(`"${badHuid.name}" का HUID 6 अक्षर/अंक का होता है (जैसे VGXVXH)`); return; }
+    const badGross = validItems.find((it) => Number(it.grossWeight) > 0 && Number(it.grossWeight) < Number(it.weight));
+    if (badGross) { toast(`"${badGross.name}" का Gross वजन, Net वजन से कम नहीं हो सकता`); return; }
+    if (validItems.some((it) => Number(it.hallmark) < 0)) { toast('Hallmark charge 0 से कम नहीं हो सकता'); return; }
     if (Number(exWeight) > 0 && !(Number(exPurity) > 0 && Number(exPurity) <= 100)) {
       toast('पुराने सोने की Purity 0 से 100% के बीच डालें'); return;
     }
     if (!(Number(exDeduct) >= 0 && Number(exDeduct) <= 100)) { toast('कटौती 0 से 100% के बीच डालें'); return; }
+    if (panUp && !PAN_RX.test(panUp)) { toast('PAN नंबर गलत है (जैसे ABCDE1234F)'); return; }
+    if (PAYMENT_MODES.some((m) => Number(pay[m.id]) < 0)) { toast('भुगतान की राशि 0 से कम नहीं हो सकती'); return; }
     // भाव 0 हो तो बिल ₹0 का बनता — पहले "आज का Rate" भरवाएं
     const noRate = validItems.find((it) => !(Number(it.metal === 'Silver' ? db.rates.silver : db.rates.gold) > 0));
     if (noRate) {
       toast(`पहले "आज का Rate" पेज पर ${noRate.metal === 'Silver' ? 'चांदी' : 'सोने'} का भाव डालें — बिना भाव के बिल ₹0 का बनता`);
       return;
     }
+    if (panWarn && !window.confirm(`बिल ${inr(sums.total)} का है — ₹2 लाख से ऊपर के बिल पर ग्राहक का PAN (या Form 60) लेना ज़रूरी है।\n\nबिना PAN के बिल बनाएं?`)) return;
+    if (cashWarn && !window.confirm(`नकद ${inr(cashVal)} — एक बिल पर ₹2 लाख या ज़्यादा नकद लेना कानूनन मना है (Income Tax धारा 269ST)। बाकी UPI / NEFT / Cheque से लें।\n\nफिर भी बिल बनाएं?`)) return;
     if (saving) return;
     setSaving(true);
 
-    // हिसाब सर्वर खुद लगाता है (भाव भी वहीं से) — stock घटाना और
+    // हिसाब और बिल नंबर सर्वर खुद लगाता है (भाव भी वहीं से) — stock घटाना और
     // उधारी चढ़ाना भी वहीं होता है, इसलिए यहाँ दोहराते नहीं.
+    const payments = PAYMENT_MODES
+      .map((m) => ({ mode: m.id, amount: Number(pay[m.id]) || 0 }))
+      .filter((p) => p.amount > 0);
     const payload = {
       type: billType,
       gstMode,
@@ -76,10 +102,13 @@ export default function Billing() {
       items: validItems.map((it) => ({
         name: it.name.trim(),
         metal: it.metal,
+        huid: (it.huid || '').trim().toUpperCase(),
+        grossWeight: Number(it.grossWeight) || 0,
         weight: Number(it.weight) || 0,
         purity: Number(it.purity) || 0,
         makingType: it.makingType,
         making: Number(it.making) || 0,
+        hallmark: Number(it.hallmark) || 0,
       })),
       exchange: {
         weight: Number(exWeight) || 0, purity: Number(exPurity) || 0,
@@ -88,7 +117,10 @@ export default function Billing() {
       discountType: discType,
       discountValue: Number(discVal) || 0,
       gstPct: Number(gstVal) || 0,
-      paid: Number(paidVal) || 0,
+      paid: paidVal,
+      payments,
+      customerAddress: address.trim(),
+      customerPan: panUp,
     };
     if (custId) payload.customerId = custId;
     else if (newName.trim()) {
@@ -98,10 +130,10 @@ export default function Billing() {
 
     try {
       const inv = await mutate(() => api.createInvoice(payload));
-      toast('बिल तैयार हो गया ✔');
+      toast(`बिल नं. ${inv.billNo || ''} तैयार हो गया ✔`);
       setItems([emptyItem()]);
-      setExWeight(0); setDiscVal(0); setPaidVal(0);
-      setCustId(''); setNewName(''); setNewPhone('');
+      setExWeight(0); setDiscVal(0); setPay({});
+      setCustId(''); setNewName(''); setNewPhone(''); setAddress(''); setPan('');
       openModal(<InvoiceModal inv={inv} settings={db.settings} />, true);
     } catch (e) {
       toast(e.message);
@@ -132,10 +164,24 @@ export default function Billing() {
           <div className="field"><label>फ़ोन नंबर</label><input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="10 अंक" /></div>
           <div className="field"><label>बिल की तारीख</label><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
         </div>
+        <div className="grid grid-2">
+          <div className="field"><label>पता (optional)</label><input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="गाँव / मोहल्ला" /></div>
+          <div className="field">
+            <label>PAN {custPan ? `(record में: ${custPan})` : '(₹2 लाख से ऊपर के बिल पर ज़रूरी)'}</label>
+            <input value={pan} maxLength={10} onChange={(e) => setPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="ABCDE1234F" />
+          </div>
+        </div>
       </div>
 
       <div className="card">
         <h3>Items <span className="small-note" style={{ margin: 0 }}>— सोना, चांदी, जितने भी अलग-अलग Item हों, एक ही बिल में जोड़ सकते हैं</span></h3>
+        <datalist id="purity-list">
+          <option value="99.9">24K</option>
+          <option value="91.6">22K</option>
+          <option value="75">18K</option>
+          <option value="58.5">14K</option>
+          <option value="92.5">चांदी 925</option>
+        </datalist>
         <div>
           {items.map((it, idx) => (
             <div className="item-row" key={idx}>
@@ -145,9 +191,14 @@ export default function Billing() {
                   <option>Gold</option><option>Silver</option>
                 </select>
               </div>
-              <div className="field" style={{ margin: 0 }}><label>वजन (g)</label><input type="number" value={it.weight} onChange={(e) => updateItem(idx, { weight: e.target.value })} /></div>
-              <div className="field" style={{ margin: 0 }}><label>Purity %</label><input type="number" value={it.purity} onChange={(e) => updateItem(idx, { purity: e.target.value })} /></div>
-              <div className="field" style={{ margin: 0 }}><label>Making (₹/g)</label><input type="number" value={it.making} onChange={(e) => updateItem(idx, { making: e.target.value })} /></div>
+              <div className="field" style={{ margin: 0 }}><label>HUID</label>
+                <input value={it.huid} maxLength={6} placeholder="6 अक्षर"
+                  onChange={(e) => updateItem(idx, { huid: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) })} />
+              </div>
+              <div className="field" style={{ margin: 0 }}><label>Gross Wt (g)</label><input type="number" value={it.grossWeight} placeholder="नग समेत" onChange={(e) => updateItem(idx, { grossWeight: e.target.value })} /></div>
+              <div className="field" style={{ margin: 0 }}><label>Net Wt (g)</label><input type="number" value={it.weight} onChange={(e) => updateItem(idx, { weight: e.target.value })} /></div>
+              <div className="field" style={{ margin: 0 }}><label>Purity %</label><input type="number" list="purity-list" value={it.purity} onChange={(e) => updateItem(idx, { purity: e.target.value })} /></div>
+              <div className="field" style={{ margin: 0 }}><label>{MAKING_LABEL[it.makingType]}</label><input type="number" value={it.making} onChange={(e) => updateItem(idx, { making: e.target.value })} /></div>
               <div className="field" style={{ margin: 0 }}><label>Making Type</label>
                 <select value={it.makingType} onChange={(e) => updateItem(idx, { makingType: e.target.value })}>
                   <option value="perg">₹/gram</option>
@@ -155,6 +206,7 @@ export default function Billing() {
                   <option value="pct">% of value</option>
                 </select>
               </div>
+              <div className="field" style={{ margin: 0 }}><label>Hallmark ₹</label><input type="number" min="0" value={it.hallmark} onChange={(e) => updateItem(idx, { hallmark: e.target.value })} /></div>
               <button className="icon-btn" onClick={() => removeItemRow(idx)}>✕</button>
             </div>
           ))}
@@ -166,7 +218,7 @@ export default function Billing() {
         <h3>पुराना सोना Exchange (वैकल्पिक)</h3>
         <div className="grid grid-4">
           <div className="field"><label>वजन (g)</label><input type="number" value={exWeight} onChange={(e) => setExWeight(e.target.value)} /></div>
-          <div className="field"><label>Purity %</label><input type="number" value={exPurity} onChange={(e) => setExPurity(e.target.value)} /></div>
+          <div className="field"><label>Purity %</label><input type="number" list="purity-list" value={exPurity} onChange={(e) => setExPurity(e.target.value)} /></div>
           <div className="field"><label>कटौती % (wastage)</label><input type="number" value={exDeduct} onChange={(e) => setExDeduct(e.target.value)} /></div>
           <div className="field"><label>Rate (₹/g)</label><input type="number" value={exRate} onChange={(e) => setExRate(e.target.value)} /></div>
         </div>
@@ -182,7 +234,7 @@ export default function Billing() {
             </select>
           </div>
           <div className="field" style={{ alignSelf: 'end' }}>
-            <p className="small-note" style={{ margin: 0 }}>बिना GST बिल में GST 0% रहेगा और Invoice पर "ESTIMATE (Non-GST)" लिखा आएगा।</p>
+            <p className="small-note" style={{ margin: 0 }}>बिना GST बिल में GST 0% रहेगा और Invoice पर "ESTIMATE (Non-GST)" लिखा आएगा। बिल नंबर अपने आप लगता है — GST बिल 1, 2, 3…; Estimate E-1…; खरीद P-1… (हर financial year में नए सिरे से)।</p>
           </div>
         </div>
       </div>
@@ -197,14 +249,32 @@ export default function Billing() {
           </div>
           <div className="field"><label>Discount Value</label><input type="number" value={discVal} onChange={(e) => setDiscVal(e.target.value)} /></div>
           <div className="field"><label>GST %</label><input type="number" value={gstVal} disabled={gstMode === 'nongst'} onChange={(e) => setGstVal(e.target.value)} /></div>
-          <div className="field"><label>अभी मिली राशि (Paid ₹)</label><input type="number" value={paidVal} onChange={(e) => setPaidVal(e.target.value)} /></div>
         </div>
+
+        <div className="pay-modes-title">अभी मिली राशि — किस तरीके से कितना</div>
+        <div className="pay-modes">
+          {PAYMENT_MODES.map((m) => (
+            <div className="field" style={{ margin: 0 }} key={m.id}>
+              <label>{m.label} ₹</label>
+              <input type="number" min="0" placeholder="0" value={pay[m.id] ?? ''}
+                onChange={(e) => setPay((p) => ({ ...p, [m.id]: e.target.value }))} />
+            </div>
+          ))}
+        </div>
+        {cashWarn && <div className="bill-warn">⚠ एक बिल पर ₹2 लाख या ज़्यादा नकद लेना कानूनन मना है (Income Tax धारा 269ST) — बाकी UPI / NEFT / Cheque से लें।</div>}
+        {panWarn && <div className="bill-warn">⚠ बिल ₹2 लाख से ऊपर का है — ग्राहक का PAN (या Form 60) ऊपर भरें।</div>}
+
         <div>
           <div className="summary-line"><span>Metal Value</span><span>{inr(sums.subtotal)}</span></div>
           <div className="summary-line"><span>Making Charges</span><span>{inr(sums.makingTotal)}</span></div>
+          {sums.hallmarkTotal > 0 && <div className="summary-line"><span>Hallmark Charges</span><span>{inr(sums.hallmarkTotal)}</span></div>}
           <div className="summary-line"><span>Discount</span><span>- {inr(sums.discount)}</span></div>
           <div className="summary-line"><span>GST ({sums.gstPct}%)</span><span>+ {inr(sums.gstAmt)}</span></div>
           <div className="summary-line"><span>पुराना सोना Exchange</span><span>- {inr(sums.exchangeVal)}</span></div>
+          {Math.abs(sums.roundOff) >= 0.005 && (
+            <div className="summary-line"><span>Round Off</span><span>{sums.roundOff > 0 ? '+ ' : '- '}{inr(Math.abs(sums.roundOff))}</span></div>
+          )}
+          <div className="summary-line"><b>कुल राशि (Bill Amount)</b><b>{inr(sums.total)}</b></div>
           <div className="summary-line"><span>प्राप्त राशि (Paid)</span><span>- {inr(sums.paid)}</span></div>
           <div className="summary-line total"><span>{sums.due >= 0 ? 'शेष देय (Due)' : 'एडवांस'}</span><span>{inr(Math.abs(sums.due))}</span></div>
         </div>

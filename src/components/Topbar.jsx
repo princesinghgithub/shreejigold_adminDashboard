@@ -39,6 +39,12 @@ function BillScan() {
           throw e;
         });
       }
+      // छपा बिल नंबर — "257", "E-12", "p5". एक से ज़्यादा साल में हो तो सबसे नया
+      if (!inv && /^[EP]?-?\d{1,7}$/i.test(text)) {
+        const no = text.toUpperCase().replace(/^([EP])-?/, '$1-');
+        const list = await api.invoicesByBillNo(no);
+        if (list.length) inv = list[0];
+      }
       if (!inv) {
         const list = await api.searchInvoices(digits || text);
         const up = text.toUpperCase();
