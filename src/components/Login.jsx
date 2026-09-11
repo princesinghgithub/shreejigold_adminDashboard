@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { LogoWordmark } from './Logo';
 import { api, setToken, apiDisplayUrl } from '../lib/api';
 
+// अंदर "लॉगिन और पासवर्ड" कार्ड (LoginSettings) में मालिक सुरक्षा सवाल इन्हीं में से चुनता है
 export const SECURITY_QUESTIONS = [
   'आपके पिताजी का नाम क्या है?',
   'आपका गाँव / जन्म-स्थान कौन सा है?',
@@ -9,12 +10,14 @@ export const SECURITY_QUESTIONS = [
   'आपके सबसे पुराने ग्राहक का नाम?',
   'आपकी माताजी का नाम क्या है?',
 ];
-const CUSTOM = '__custom__';
-const MIN_USERID = 3;
 const MIN_PASSWORD = 4;
 
+/**
+ * बाहर की स्क्रीन — सिर्फ यूज़र ID + पासवर्ड से लॉगिन. यहाँ कोई register / खाता बनाने का फॉर्म नहीं:
+ * मालिक का खाता backend में `npm run seed:admin` से बनता है, बाकी users अंदर "Users / Staff" पेज से.
+ */
 export default function Login({ onSuccess }) {
-  // 'checking' | 'login' | 'setup' | 'forgot' | 'offline'
+  // 'checking' | 'login' | 'nosetup' | 'forgot' | 'offline'
   const [mode, setMode] = useState('checking');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -23,22 +26,18 @@ export default function Login({ onSuccess }) {
   const [userId, setUserId] = useState('');
   const [pass, setPass] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [qChoice, setQChoice] = useState(SECURITY_QUESTIONS[0]);
-  const [qCustom, setQCustom] = useState('');
   const [answer, setAnswer] = useState('');
   const [foundQ, setFoundQ] = useState('');
   const [otp, setOtp] = useState('');
   const [otpTo, setOtpTo] = useState(''); // OTP किस (छिपे) email पर गया
 
-  const question = qChoice === CUSTOM ? qCustom : qChoice;
-
-  // सर्वर से पूछें — खाता बना है या पहली बार है
+  // सर्वर से पूछें — खाता बना है या नहीं
   const checkStatus = async () => {
     setMode('checking');
     setErr('');
     try {
       const s = await api.authStatus();
-      setMode(s.isSetup ? 'login' : 'setup');
+      setMode(s.isSetup ? 'login' : 'nosetup');
     } catch (e) {
       setErr(e.message);
       setMode('offline');
@@ -52,24 +51,13 @@ export default function Login({ onSuccess }) {
     setPass(''); setConfirm(''); setAnswer(''); setFoundQ(''); setOtp(''); setOtpTo('');
   }
 
-  /** हर बटन के लिए एक ही ढाँचा — busy, error और toast एक जगह */
+  /** हर बटन के लिए एक ही ढाँचा — busy और error एक जगह */
   async function run(fn) {
     if (busy) return;
     setBusy(true);
     setErr('');
     try { await fn(); } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
-
-  const handleSetup = () => run(async () => {
-    if (String(userId).trim().length < MIN_USERID) throw new Error(`यूज़र ID कम से कम ${MIN_USERID} अक्षर का रखें`);
-    if (pass.trim().length < MIN_PASSWORD) throw new Error(`पासवर्ड कम से कम ${MIN_PASSWORD} अक्षर का रखें`);
-    if (pass.trim() !== confirm.trim()) throw new Error('दोनों पासवर्ड एक जैसे नहीं हैं');
-    if (!question.trim()) throw new Error('सुरक्षा सवाल चुनें');
-    if (!answer.trim()) throw new Error('सुरक्षा सवाल का जवाब लिखें');
-    const r = await api.setup({ userId: userId.trim(), password: pass.trim(), question: question.trim(), answer: answer.trim() });
-    setToken(r.token);
-    onSuccess(true);
-  });
 
   const handleLogin = () => run(async () => {
     if (!userId.trim() || !pass.trim()) throw new Error('यूज़र ID और पासवर्ड दोनों डालें');
@@ -117,7 +105,7 @@ export default function Login({ onSuccess }) {
   const tag = {
     checking: 'सर्वर से जुड़ रहे हैं…',
     offline: 'सर्वर से बात नहीं हो पा रही',
-    setup: 'पहली बार — अपना यूज़र ID और पासवर्ड बनाएं',
+    nosetup: 'अभी कोई लॉगिन खाता नहीं बना है',
     forgot: 'पासवर्ड भूल गए? Email पर OTP मँगाएं',
     login: 'बिलिंग व हिसाब सिस्टम — केवल दुकान के लिए',
   }[mode];
@@ -149,43 +137,24 @@ export default function Login({ onSuccess }) {
           <div>
             <div className="err">{err}</div>
             <p className="hint" style={{ textAlign: 'left' }}>
-              backend चालू करने के लिए टर्मिनल में <b>soniji backend</b> फोल्डर खोलकर
-              <code> npm run dev </code> चलाएं। पता: <code>{apiDisplayUrl()}</code>
+              ऐप को backend (API) नहीं मिला। पता: <code>{apiDisplayUrl()}</code><br />
+              • अपने कंप्यूटर पर: <b>soniji backend</b> फोल्डर में <code>npm run dev</code> चलाएं।<br />
+              • Vercel पर: इस ऐप की Environment Variable <code>SHREEJI_URL</code> में backend का पता
+              (जैसे <code>https://आपका-backend.vercel.app/api</code>) डालकर दोबारा deploy करें।
             </p>
             <button className="btn btn-primary" onClick={checkStatus}>दोबारा कोशिश करें</button>
           </div>
         )}
 
-        {/* ---------- पहली बार ---------- */}
-        {mode === 'setup' && (
+        {/* ---------- अभी कोई खाता नहीं — बाहर से बनता नहीं ---------- */}
+        {mode === 'nosetup' && (
           <div>
-            <div className="field"><label>यूज़र ID</label>
-              <input type="text" value={userId} onChange={(e) => setUserId(e.target.value)}
-                placeholder={`कम से कम ${MIN_USERID} अक्षर, बिना जगह`} autoComplete="username" /></div>
-            <div className="field"><label>पासवर्ड</label>
-              <input type="password" value={pass} onChange={(e) => setPass(e.target.value)}
-                placeholder={`कम से कम ${MIN_PASSWORD} अक्षर`} autoComplete="new-password" /></div>
-            <div className="field"><label>पासवर्ड दोबारा</label>
-              <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)}
-                placeholder="वही पासवर्ड फिर से" autoComplete="new-password" /></div>
-            <div className="field"><label>सुरक्षा सवाल — पासवर्ड भूलने पर यही पूछा जाएगा</label>
-              <select value={qChoice} onChange={(e) => setQChoice(e.target.value)}>
-                {SECURITY_QUESTIONS.map((q) => <option key={q} value={q}>{q}</option>)}
-                <option value={CUSTOM}>अपना सवाल लिखें…</option>
-              </select></div>
-            {qChoice === CUSTOM && (
-              <div className="field"><label>आपका सवाल</label>
-                <input type="text" value={qCustom} onChange={(e) => setQCustom(e.target.value)}
-                  placeholder="जैसे — मेरी पहली अंगूठी किसने खरीदी थी?" /></div>
-            )}
-            <div className="field"><label>इसका जवाब</label>
-              <input type="text" value={answer} onChange={(e) => setAnswer(e.target.value)}
-                onKeyDown={enter(handleSetup)} placeholder="जवाब याद रखें" /></div>
-            <button className="btn btn-primary" disabled={busy} onClick={handleSetup}>
-              {busy ? 'बन रहा है…' : 'खाता बनाएं और शुरू करें'}
-            </button>
-            <div className="err">{err}</div>
-            <p className="hint">जवाब में छोटे-बड़े अक्षर से फ़र्क नहीं पड़ता। यूज़र ID में email रखेंगे तो पासवर्ड भूलने पर उसी पर OTP आएगा।</p>
+            <p className="hint" style={{ textAlign: 'left' }}>
+              मालिक का पहला खाता backend में <code>.env</code> के <code>ADMIN_USER_ID</code> और
+              <code> ADMIN_PASSWORD</code> भरकर <code>npm run seed:admin</code> चलाने से बनता है।
+              उसके बाद उसी से लॉगिन करके अंदर <b>Users / Staff</b> पेज से बाकी लोगों के खाते बनाएं।
+            </p>
+            <button className="btn btn-primary" onClick={checkStatus}>खाता बन गया — दोबारा देखें</button>
           </div>
         )}
 
@@ -204,10 +173,11 @@ export default function Login({ onSuccess }) {
             <div className="err">{err}</div>
             {msg && <p className="ok-note">{msg}</p>}
             <button className="link-btn" style={{ marginTop: 14 }} onClick={() => go('forgot')}>पासवर्ड भूल गए?</button>
+            <p className="hint">नया खाता चाहिए? मालिक या Admin से कहें — खाते अंदर &quot;Users / Staff&quot; पेज से बनते हैं।</p>
           </div>
         )}
 
-        {/* ---------- पासवर्ड भूल गए ---------- */}
+        {/* ---------- पासवर्ड भूल गए (मालिक का खाता) ---------- */}
         {mode === 'forgot' && (
           <div>
             <div className="field"><label>यूज़र ID (email)</label>
@@ -259,7 +229,7 @@ export default function Login({ onSuccess }) {
             <button className="link-btn" style={{ marginTop: 14 }} onClick={() => go('login')}>← वापस लॉगिन पर</button>
             <p className="hint">
               पासवर्ड बदलने से Customers, Bills, Stock — कोई भी डेटा नहीं मिटता।
-              यूज़र ID भी भूल जाएं तो backend में <code>npm run reset-password</code> चलाएं।
+              Staff का पासवर्ड मालिक या Admin अंदर Users पेज से बदलते हैं।
             </p>
           </div>
         )}

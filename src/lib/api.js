@@ -4,7 +4,9 @@
 //  • dev में — vite.config.js का proxy इसे backend (पोर्ट 4000) पर भेज देता है
 //  • असली इस्तेमाल में — backend खुद बना हुआ ऐप परोसता है, तो यह उसी सर्वर पर जाता है
 // इसीलिए मोबाइल से खोलने पर भी कुछ बदलना नहीं पड़ता, और CORS बीच में आता ही नहीं.
-export const API_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+// hosting पर SHREEJI_URL में backend का पता (जैसे https://shreejigoldbackend.vercel.app/api).
+// पुराना नाम VITE_API_URL भी चलता है.
+export const API_URL = (import.meta.env.SHREEJI_URL || import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
 /** गड़बड़ी के संदेश में दिखाने लायक पूरा पता */
 export function apiDisplayUrl() {
@@ -57,7 +59,17 @@ async function request(method, path, body, opts = {}) {
 
   const text = await res.text();
   let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  let isJson = true;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; isJson = false; }
+
+  // backend की जगह कोई HTML पेज आया (hosting पर SHREEJI_URL नहीं डाला या पता गलत है).
+  // इसे "कोई खाता नहीं" जैसा जवाब मानकर गलत स्क्रीन (जैसे खाता बनाने का फॉर्म) न दिखे
+  if (!isJson) {
+    throw new ApiError(
+      'backend से नहीं जुड़ पाए — ' + apiDisplayUrl() + ' पर API नहीं मिली। Hosting पर SHREEJI_URL में backend का पता डालें।',
+      0,
+    );
+  }
 
   if (!res.ok) {
     // data की जाँच वाली गलती में असली वजह details में आती है (जैसे "Purity 0 से 100% के बीच…")

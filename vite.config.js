@@ -6,6 +6,9 @@ import react from '@vitejs/plugin-react';
 // बना हुआ ऐप परोसता है, तो वहाँ भी '/api' अपने आप सही निकलता है.
 export default defineConfig({
   plugins: [react()],
+  // SHREEJI_URL (backend का पता) ऐप के कोड तक पहुँचे — Vite सिर्फ इन prefix वाले variables देता है.
+  // ध्यान: SHREEJI_ से शुरू होने वाला हर variable browser में दिखता है, इसमें कोई secret न रखें
+  envPrefix: ['VITE_', 'SHREEJI_'],
   server: {
     host: true, // मोबाइल से भी खुल सके (http://<कंप्यूटर का IP>:5173)
     proxy: {
