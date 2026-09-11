@@ -1,0 +1,5 @@
+dist
+.env
+.env.local
+# UPI QR की असली फोटो — ऐप इसे इस्तेमाल नहीं करता, इसमें निजी फोटो है
+public/barcode.jpeg
