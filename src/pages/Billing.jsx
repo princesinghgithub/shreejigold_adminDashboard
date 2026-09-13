@@ -40,9 +40,25 @@ export default function Billing() {
 
   const [discType, setDiscType] = useState('flat');
   const [discVal, setDiscVal] = useState(0);
-  const [gstType, setGstType] = useState('pct'); // 'pct' = %, 'flat' = सीधे ₹
-  const [gstVal, setGstVal] = useState(db.settings.gst);
+  // GST दो में से किसी भी एक तरह से — दोनों खाने वैकल्पिक हैं
+  const [gstPctVal, setGstPctVal] = useState(db.settings.gst); // प्रतिशत में
+  const [gstAmtVal, setGstAmtVal] = useState('');              // सीधे रुपयों में
   const [pay, setPay] = useState({}); // { cash: '50000', upi: '20000' }
+  const [matches, setMatches] = useState([]); // "यह ग्राहक पहले से है" वाले सुझाव
+
+  // नया नाम/नंबर लिखते ही देख लें कि यह ग्राहक पहले से तो नहीं — वरना उसी आदमी के
+  // दो खाते बन जाते हैं और उधारी दो जगह बँट जाती है
+  useEffect(() => {
+    const q = newPhone.trim().length >= 4 ? newPhone.trim() : newName.trim();
+    if (custId || q.length < 3) { setMatches([]); return undefined; }
+    let alive = true;
+    const t = setTimeout(() => {
+      api.search(q)
+        .then((r) => { if (alive) setMatches(r.customers || []); })
+        .catch(() => { /* न मिले तो कुछ न दिखाएं */ });
+    }, 300);
+    return () => { alive = false; clearTimeout(t); };
+  }, [newName, newPhone, custId]);
 
   // बिलिंग पेज पहले से खुला हो, तब भी ग्राहक चुना जाए
   useEffect(() => {
@@ -66,15 +82,18 @@ export default function Billing() {
 
   function onGstModeChange(v) {
     setGstMode(v);
-    if (v === 'nongst') setGstVal(0);
-    else setGstVal(gstType === 'pct' ? db.settings.gst : 0);
+    setGstAmtVal('');
+    setGstPctVal(v === 'nongst' ? '' : db.settings.gst);
   }
 
-  // % से ₹ (या उल्टा) पर जाते ही पुरानी संख्या का मतलब बदल जाता — इसलिए नई शुरुआत
-  function onGstTypeChange(v) {
-    setGstType(v);
-    if (gstMode === 'nongst') { setGstVal(0); return; }
-    setGstVal(v === 'pct' ? db.settings.gst : 0);
+  // एक खाना भरते ही दूसरा खाली — दोनों भरे होने पर "कौन सा लगेगा" की उलझन ही न रहे
+  function onGstPct(v) {
+    setGstPctVal(v);
+    if (String(v).trim() !== '') setGstAmtVal('');
+  }
+  function onGstAmt(v) {
+    setGstAmtVal(v);
+    if (String(v).trim() !== '') setGstPctVal('');
   }
 
   const paidVal = PAYMENT_MODES.reduce((s, m) => s + (Number(pay[m.id]) || 0), 0);
@@ -82,7 +101,12 @@ export default function Billing() {
   const panUp = pan.trim().toUpperCase();
   const custPan = custId ? ((db.customers.find((c) => c.id === custId) || {}).pan || '') : '';
   const exchange = { weight: exWeight, purity: exPurity, deduct: exDeduct, rate: exRate };
-  const sums = summarizeBill(items, db.rates, exchange, discType, discVal, { type: gstType, value: gstVal }, paidVal);
+  // रुपयों वाला खाना भरा हो तो वही, वरना प्रतिशत वाला; दोनों खाली = GST नहीं
+  const gstFlat = String(gstAmtVal).trim() !== '';
+  const gstInput = gstMode === 'nongst'
+    ? { type: 'pct', value: 0 }
+    : gstFlat ? { type: 'flat', value: gstAmtVal } : { type: 'pct', value: gstPctVal || 0 };
+  const sums = summarizeBill(items, db.rates, exchange, discType, discVal, gstInput, paidVal);
   const cashWarn = billType === 'sale' && cashVal >= CASH_LIMIT;
   const panWarn = sums.total > PAN_LIMIT && !(panUp || custPan);
 
@@ -140,8 +164,8 @@ export default function Billing() {
       },
       discountType: discType,
       discountValue: Number(discVal) || 0,
-      gstType,
-      gstValue: Number(gstVal) || 0,
+      gstType: gstInput.type,
+      gstValue: Number(gstInput.value) || 0,
       paid: paidVal,
       payments,
       customerAddress: address.trim(),
@@ -196,6 +220,28 @@ export default function Billing() {
             <input value={pan} maxLength={10} onChange={(e) => setPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="ABCDE1234F" />
           </div>
         </div>
+
+        {custId ? (
+          <p className="small-note" style={{ margin: 0 }}>
+            पुराना खाता चुना है — यह बिल और बकाया उसी खाते में जुड़ेगा, नया खाता नहीं बनेगा।
+          </p>
+        ) : matches.length > 0 ? (
+          <div className="cust-matches">
+            <span>ये ग्राहक पहले से हैं — नया खाता न बने, इसलिए इन्हीं में से चुनें:</span>
+            {matches.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                className="chip"
+                onClick={() => { setCustId(m.id); setNewName(''); setNewPhone(''); setMatches([]); }}
+              >
+                {m.name}{m.phone ? ` · ${m.phone}` : ''}
+                {m.balance > 0 ? ` · बाकी ${inr(m.balance)}` : ''}
+                {m.bills ? ` · ${m.bills} बिल` : ''}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="card">
@@ -273,15 +319,17 @@ export default function Billing() {
             </select>
           </div>
           <div className="field"><label>Discount Value</label><input type="number" value={discVal} onChange={(e) => setDiscVal(e.target.value)} /></div>
-          <div className="field"><label>GST किस तरह</label>
-            <select value={gstType} disabled={gstMode === 'nongst'} onChange={(e) => onGstTypeChange(e.target.value)}>
-              <option value="pct">% में</option>
-              <option value="flat">₹ सीधा</option>
-            </select>
-          </div>
-          <div className="field"><label>{gstType === 'pct' ? 'GST %' : 'GST राशि ₹'}</label>
-            <input type="number" min="0" value={gstVal} disabled={gstMode === 'nongst'} onChange={(e) => setGstVal(e.target.value)} /></div>
+          <div className="field"><label>GST % (वैकल्पिक)</label>
+            <input type="number" min="0" placeholder="जैसे 3" value={gstPctVal}
+              disabled={gstMode === 'nongst'} onChange={(e) => onGstPct(e.target.value)} /></div>
+          <div className="field"><label>या GST राशि ₹ (वैकल्पिक)</label>
+            <input type="number" min="0" placeholder="जैसे 1500" value={gstAmtVal}
+              disabled={gstMode === 'nongst'} onChange={(e) => onGstAmt(e.target.value)} /></div>
         </div>
+        <p className="small-note" style={{ marginTop: 0 }}>
+          GST दो में से किसी भी एक तरह से जोड़ें — प्रतिशत, या सीधी रकम। एक भरते ही दूसरा अपने आप खाली हो जाता है,
+          और बिल पर वही छपता है जो भरा गया। दोनों खाली रखें तो GST नहीं लगेगा।
+        </p>
 
         <div className="pay-modes-title">अभी मिली राशि — किस तरीके से कितना</div>
         <div className="pay-modes">
@@ -302,7 +350,7 @@ export default function Billing() {
           {sums.hallmarkTotal > 0 && <div className="summary-line"><span>Hallmark Charges</span><span>{inr(sums.hallmarkTotal)}</span></div>}
           <div className="summary-line"><span>Discount</span><span>- {inr(sums.discount)}</span></div>
           <div className="summary-line">
-            <span>GST {gstMode === 'nongst' ? '(लागू नहीं)' : gstType === 'pct' ? `(${sums.gstPct}%)` : '(सीधा ₹)'}</span>
+            <span>GST {gstMode === 'nongst' ? '(लागू नहीं)' : gstFlat ? '(सीधी रकम)' : `(${sums.gstPct}%)`}</span>
             <span>+ {inr(sums.gstAmt)}</span>
           </div>
           <div className="summary-line"><span>पुराना सोना Exchange</span><span>- {inr(sums.exchangeVal)}</span></div>

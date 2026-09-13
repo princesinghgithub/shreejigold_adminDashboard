@@ -129,6 +129,8 @@ export const api = {
 
   // ---- ग्राहक ----
   getCustomer: (id) => get('/customers/' + id),
+  customerDuplicates: () => get('/customers/duplicates'),
+  mergeCustomers: (targetId, fromId) => post('/customers/' + targetId + '/merge', { from: fromId }),
   customerBills: (id) => get('/invoices' + qs({ customerId: id, limit: 50 })),
   createCustomer: (c) => post('/customers', c),
   updateCustomer: (id, c) => put('/customers/' + id, c),
