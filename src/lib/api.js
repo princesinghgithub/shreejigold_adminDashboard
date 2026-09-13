@@ -124,7 +124,12 @@ export const api = {
   saveSettings: (s) => put('/shop/settings', s),
   dashboard: () => get('/shop/dashboard'),
 
+  // ---- ऊपर के खाने से खोज (ग्राहक + बिल) ----
+  search: (q) => get('/search' + qs({ q })),
+
   // ---- ग्राहक ----
+  getCustomer: (id) => get('/customers/' + id),
+  customerBills: (id) => get('/invoices' + qs({ customerId: id, limit: 50 })),
   createCustomer: (c) => post('/customers', c),
   updateCustomer: (id, c) => put('/customers/' + id, c),
   deleteCustomer: (id) => del('/customers/' + id),
@@ -137,6 +142,7 @@ export const api = {
 
   // ---- बिल ----
   createInvoice: (inv) => post('/invoices', inv),
+  getInvoice: (id) => get('/invoices/' + id),
   deleteInvoice: (id) => del('/invoices/' + id),
   recordPayment: (id, amount, note, mode) => post('/invoices/' + id + '/payment', { amount, note, mode }),
   invoiceByBarcode: (code) => get('/invoices/barcode/' + encodeURIComponent(code)),

@@ -49,6 +49,15 @@ function Shell() {
   const { status, error, refresh } = useData();
   const toast = useToast();
 
+  // ग्राहक के खाते से "नया बिल" जैसे बटन यहाँ पेज बदलवाते हैं (lib/nav.js)
+  useEffect(() => {
+    function onGo(e) {
+      if (e.detail && e.detail.view && PAGES[e.detail.view]) setView(e.detail.view);
+    }
+    window.addEventListener('go-view', onGo);
+    return () => window.removeEventListener('go-view', onGo);
+  }, []);
+
   // टोकन पुराना पड़ जाए तो कहीं भी हों, लॉगिन पर वापस
   useEffect(() => {
     setUnauthorizedHandler(() => {

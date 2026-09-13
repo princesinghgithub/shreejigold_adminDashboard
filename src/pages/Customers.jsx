@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useData } from '../context/DataContext';
 import { useModal } from '../context/ModalContext';
 import { useToast } from '../context/ToastContext';
-import { fmtDate, inr } from '../lib/format';
+import { inr } from '../lib/format';
 import { api } from '../lib/api';
+import CustomerModal from '../components/CustomerModal';
 
 function CustomerForm({ customer }) {
   const { mutate } = useData();
@@ -12,11 +13,12 @@ function CustomerForm({ customer }) {
   const [name, setName] = useState(customer?.name || '');
   const [phone, setPhone] = useState(customer?.phone || '');
   const [address, setAddress] = useState(customer?.address || '');
+  const [pan, setPan] = useState(customer?.pan || '');
   const [balance, setBalance] = useState(customer?.balance || 0);
 
   async function save() {
     if (!name.trim()) { toast('नाम जरूरी है'); return; }
-    const base = { name: name.trim(), phone: phone.trim(), address: address.trim() };
+    const base = { name: name.trim(), phone: phone.trim(), address: address.trim(), pan: pan.trim().toUpperCase() };
     try {
       // बकाया रकम सीधे नहीं लिखी जाती — वह हमेशा उधारी खाते से जुड़ती है
       await mutate(() => (customer
@@ -33,52 +35,10 @@ function CustomerForm({ customer }) {
       <div className="field"><label>नाम *</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
       <div className="field"><label>फ़ोन नंबर</label><input value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
       <div className="field"><label>पता</label><input value={address} onChange={(e) => setAddress(e.target.value)} /></div>
-      <div className="field"><label>Opening उधारी बैलेंस (₹)</label><input type="number" value={balance} onChange={(e) => setBalance(e.target.value)} /></div>
+      <div className="field"><label>PAN (₹2 लाख से ऊपर के बिल पर ज़रूरी)</label>
+        <input value={pan} maxLength={10} onChange={(e) => setPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="ABCDE1234F" /></div>
+      {!customer && <div className="field"><label>Opening उधारी बैलेंस (₹)</label><input type="number" value={balance} onChange={(e) => setBalance(e.target.value)} /></div>}
       <button className="btn btn-primary" onClick={save}>Save करें</button>
-    </div>
-  );
-}
-
-function LedgerModal({ customerId }) {
-  const { db, mutate } = useData();
-  const { closeModal } = useModal();
-  const toast = useToast();
-  const [amt, setAmt] = useState('');
-  const c = db.customers.find((x) => x.id === customerId);
-  if (!c) return null;
-  const ledger = (c.ledger || []).slice().reverse();
-
-  async function addPayment() {
-    const n = Number(amt);
-    if (!n) { toast('राशि डालें'); return; }
-    try {
-      // ऋणात्मक रकम = पैसा जमा हुआ
-      await mutate(() => api.addLedger(customerId, { amount: -n, note: 'भुगतान प्राप्त' }));
-    } catch (e) { toast(e.message); return; }
-    toast('भुगतान दर्ज हो गया ✔');
-    setAmt('');
-  }
-
-  return (
-    <div>
-      <div className="modal-head"><h3>{c.name} — उधारी हिसाब</h3><button className="modal-close" onClick={closeModal}>✕</button></div>
-      <p>वर्तमान बैलेंस: <b style={{ color: c.balance > 0 ? 'var(--red)' : 'var(--green)' }}>{c.balance > 0 ? inr(c.balance) + ' बाकी' : c.balance < 0 ? inr(-c.balance) + ' एडवांस' : 'Clear'}</b></p>
-      <div className="grid grid-2" style={{ margin: '14px 0' }}>
-        <div>
-          <div className="field"><label>राशि जमा करें (₹)</label><input type="number" value={amt} onChange={(e) => setAmt(e.target.value)} placeholder="जैसे 2000" /></div>
-          <button className="btn btn-gold" onClick={addPayment}>भुगतान जमा करें</button>
-        </div>
-      </div>
-      <div className="tbl-wrap" style={{ maxHeight: 260, overflowY: 'auto' }}>
-        <table>
-          <tbody>
-            <tr><th>तारीख</th><th>विवरण</th><th>राशि</th></tr>
-            {ledger.length ? ledger.map((l, idx) => (
-              <tr key={idx}><td>{fmtDate(l.date)}</td><td>{l.note}</td><td style={{ color: l.amount > 0 ? 'var(--red)' : 'var(--green)' }}>{l.amount > 0 ? '+' : ''}{inr(l.amount)}</td></tr>
-            )) : <tr><td colSpan={3} className="empty">कोई लेन-देन नहीं</td></tr>}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }
@@ -86,27 +46,43 @@ function LedgerModal({ customerId }) {
 export default function Customers() {
   const { db } = useData();
   const { openModal } = useModal();
+  const [q, setQ] = useState('');
+
+  const text = q.trim().toLowerCase();
+  const list = text
+    ? db.customers.filter((c) => [c.name, c.phone, c.address].some((v) => String(v || '').toLowerCase().includes(text)))
+    : db.customers;
 
   return (
     <div className="card">
-      <h3 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <h3 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         Customer List
         <button className="btn btn-gold" style={{ padding: '7px 14px', fontSize: 13 }} onClick={() => openModal(<CustomerForm />)}>+ नया Customer</button>
       </h3>
+
+      <div className="field" style={{ maxWidth: 340 }}>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 नाम, फ़ोन या पते से खोजें" aria-label="Customer खोजें" />
+      </div>
+
       <div className="tbl-wrap">
         <table>
           <tbody>
             <tr><th>नाम</th><th>फ़ोन</th><th>पता</th><th>उधारी बैलेंस</th><th></th></tr>
-            {db.customers.length ? db.customers.map((c) => (
+            {list.length ? list.map((c) => (
               <tr key={c.id}>
-                <td>{c.name}</td><td>{c.phone}</td><td>{c.address || '-'}</td>
+                <td><button className="link-btn" onClick={() => openModal(<CustomerModal key={c.id} customerId={c.id} />, true)}>{c.name}</button></td>
+                <td>{c.phone}</td><td>{c.address || '-'}</td>
                 <td>{c.balance > 0 ? <span className="badge badge-due">{inr(c.balance)} बाकी</span> : c.balance < 0 ? <span className="badge badge-paid">{inr(-c.balance)} एडवांस</span> : <span className="badge badge-paid">Clear</span>}</td>
                 <td className="row-actions">
                   <button className="icon-btn" onClick={() => openModal(<CustomerForm customer={c} />)}>Edit</button>
-                  <button className="icon-btn" onClick={() => openModal(<LedgerModal customerId={c.id} />, true)}>हिसाब</button>
+                  <button className="icon-btn" onClick={() => openModal(<CustomerModal key={c.id} customerId={c.id} />, true)}>हिसाब / बिल</button>
                 </td>
               </tr>
-            )) : <tr><td colSpan={5} className="empty">कोई Customer नहीं जोड़ा गया</td></tr>}
+            )) : (
+              <tr><td colSpan={5} className="empty">
+                {text ? `"${q.trim()}" से कोई Customer नहीं मिला` : 'कोई Customer नहीं जोड़ा गया'}
+              </td></tr>
+            )}
           </tbody>
         </table>
       </div>

@@ -23,6 +23,8 @@ export default function InvoiceView({ inv, settings }) {
   const time = fmtTime(inv.createdAt);
   const halfPct = num(inv.gstPct) / 2;
   const halfGst = num(inv.gst) / 2;
+  // GST सीधे रुपयों में डाला गया हो तो बिल पर प्रतिशत नहीं, सिर्फ रकम
+  const gstFlat = inv.gstType === 'flat';
 
   // canvas पर दोगुने resolution में — SVG वाला barcode PDF में नहीं आता था
   useEffect(() => {
@@ -106,8 +108,8 @@ export default function InvoiceView({ inv, settings }) {
           <div><span>GST (लागू नहीं)</span><span>+ {inr(0)}</span></div>
         ) : (
           <>
-            <div><span>CGST ({halfPct}%)</span><span>+ {inr(halfGst)}</span></div>
-            <div><span>SGST ({halfPct}%)</span><span>+ {inr(halfGst)}</span></div>
+            <div><span>CGST{gstFlat ? '' : ` (${halfPct}%)`}</span><span>+ {inr(halfGst)}</span></div>
+            <div><span>SGST{gstFlat ? '' : ` (${halfPct}%)`}</span><span>+ {inr(halfGst)}</span></div>
           </>
         )}
         <div><span>Exchange Adjustment</span><span>- {inr(inv.exchange ? inv.exchange.value : 0)}</span></div>

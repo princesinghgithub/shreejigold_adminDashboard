@@ -9,7 +9,8 @@ import { api } from '../lib/api';
 import { fmtDate, inr } from '../lib/format';
 import { billNoOf, paymentRows, PAYMENT_MODES, CASH_LIMIT } from '../lib/bill';
 
-export default function InvoiceModal({ inv: initialInv, settings }) {
+// backTo = { label, onClick } — ग्राहक के खाते से खुला बिल "वापस" दबाकर वहीं लौट आए
+export default function InvoiceModal({ inv: initialInv, settings, backTo }) {
   const { requestPrint, requestPdf } = usePrint();
   const { closeModal } = useModal();
   const { refresh } = useData();
@@ -86,7 +87,10 @@ export default function InvoiceModal({ inv: initialInv, settings }) {
   return (
     <div>
       <div className="modal-head">
-        <h3>बिल नं. {billNoOf(inv)}</h3>
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {backTo && <button className="modal-back" onClick={backTo.onClick}>← {backTo.label}</button>}
+          बिल नं. {billNoOf(inv)}
+        </h3>
         <button className="modal-close" onClick={closeModal}>✕</button>
       </div>
 

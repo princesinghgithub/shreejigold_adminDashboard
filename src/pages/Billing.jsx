@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useData } from '../context/DataContext';
 import { useToast } from '../context/ToastContext';
 import { useModal } from '../context/ModalContext';
@@ -6,6 +6,7 @@ import { todayStr, inr } from '../lib/format';
 import { api } from '../lib/api';
 import { summarizeBill } from '../lib/calc';
 import { PAYMENT_MODES, CASH_LIMIT, PAN_LIMIT } from '../lib/bill';
+import { takePendingCustomer } from '../lib/nav';
 import InvoiceModal from '../components/InvoiceModal';
 
 const emptyItem = () => ({
@@ -22,7 +23,8 @@ export default function Billing() {
 
   const [billType, setBillType] = useState('sale');
   const [gstMode, setGstMode] = useState('gst');
-  const [custId, setCustId] = useState('');
+  // ग्राहक के खाते से "नया बिल" दबाकर आए हों तो वही ग्राहक पहले से चुना मिले
+  const [custId, setCustId] = useState(() => takePendingCustomer() || '');
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [address, setAddress] = useState('');
@@ -38,8 +40,23 @@ export default function Billing() {
 
   const [discType, setDiscType] = useState('flat');
   const [discVal, setDiscVal] = useState(0);
+  const [gstType, setGstType] = useState('pct'); // 'pct' = %, 'flat' = सीधे ₹
   const [gstVal, setGstVal] = useState(db.settings.gst);
   const [pay, setPay] = useState({}); // { cash: '50000', upi: '20000' }
+
+  // बिलिंग पेज पहले से खुला हो, तब भी ग्राहक चुना जाए
+  useEffect(() => {
+    function onGo(e) {
+      if (e.detail && e.detail.view === 'billing' && e.detail.customerId) {
+        takePendingCustomer();
+        setCustId(e.detail.customerId);
+        setNewName('');
+        setNewPhone('');
+      }
+    }
+    window.addEventListener('go-view', onGo);
+    return () => window.removeEventListener('go-view', onGo);
+  }, []);
 
   function updateItem(idx, patch) {
     setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
@@ -50,7 +67,14 @@ export default function Billing() {
   function onGstModeChange(v) {
     setGstMode(v);
     if (v === 'nongst') setGstVal(0);
-    else setGstVal(db.settings.gst);
+    else setGstVal(gstType === 'pct' ? db.settings.gst : 0);
+  }
+
+  // % से ₹ (या उल्टा) पर जाते ही पुरानी संख्या का मतलब बदल जाता — इसलिए नई शुरुआत
+  function onGstTypeChange(v) {
+    setGstType(v);
+    if (gstMode === 'nongst') { setGstVal(0); return; }
+    setGstVal(v === 'pct' ? db.settings.gst : 0);
   }
 
   const paidVal = PAYMENT_MODES.reduce((s, m) => s + (Number(pay[m.id]) || 0), 0);
@@ -58,7 +82,7 @@ export default function Billing() {
   const panUp = pan.trim().toUpperCase();
   const custPan = custId ? ((db.customers.find((c) => c.id === custId) || {}).pan || '') : '';
   const exchange = { weight: exWeight, purity: exPurity, deduct: exDeduct, rate: exRate };
-  const sums = summarizeBill(items, db.rates, exchange, discType, discVal, gstVal, paidVal);
+  const sums = summarizeBill(items, db.rates, exchange, discType, discVal, { type: gstType, value: gstVal }, paidVal);
   const cashWarn = billType === 'sale' && cashVal >= CASH_LIMIT;
   const panWarn = sums.total > PAN_LIMIT && !(panUp || custPan);
 
@@ -116,7 +140,8 @@ export default function Billing() {
       },
       discountType: discType,
       discountValue: Number(discVal) || 0,
-      gstPct: Number(gstVal) || 0,
+      gstType,
+      gstValue: Number(gstVal) || 0,
       paid: paidVal,
       payments,
       customerAddress: address.trim(),
@@ -248,7 +273,14 @@ export default function Billing() {
             </select>
           </div>
           <div className="field"><label>Discount Value</label><input type="number" value={discVal} onChange={(e) => setDiscVal(e.target.value)} /></div>
-          <div className="field"><label>GST %</label><input type="number" value={gstVal} disabled={gstMode === 'nongst'} onChange={(e) => setGstVal(e.target.value)} /></div>
+          <div className="field"><label>GST किस तरह</label>
+            <select value={gstType} disabled={gstMode === 'nongst'} onChange={(e) => onGstTypeChange(e.target.value)}>
+              <option value="pct">% में</option>
+              <option value="flat">₹ सीधा</option>
+            </select>
+          </div>
+          <div className="field"><label>{gstType === 'pct' ? 'GST %' : 'GST राशि ₹'}</label>
+            <input type="number" min="0" value={gstVal} disabled={gstMode === 'nongst'} onChange={(e) => setGstVal(e.target.value)} /></div>
         </div>
 
         <div className="pay-modes-title">अभी मिली राशि — किस तरीके से कितना</div>
@@ -269,7 +301,10 @@ export default function Billing() {
           <div className="summary-line"><span>Making Charges</span><span>{inr(sums.makingTotal)}</span></div>
           {sums.hallmarkTotal > 0 && <div className="summary-line"><span>Hallmark Charges</span><span>{inr(sums.hallmarkTotal)}</span></div>}
           <div className="summary-line"><span>Discount</span><span>- {inr(sums.discount)}</span></div>
-          <div className="summary-line"><span>GST ({sums.gstPct}%)</span><span>+ {inr(sums.gstAmt)}</span></div>
+          <div className="summary-line">
+            <span>GST {gstMode === 'nongst' ? '(लागू नहीं)' : gstType === 'pct' ? `(${sums.gstPct}%)` : '(सीधा ₹)'}</span>
+            <span>+ {inr(sums.gstAmt)}</span>
+          </div>
           <div className="summary-line"><span>पुराना सोना Exchange</span><span>- {inr(sums.exchangeVal)}</span></div>
           {Math.abs(sums.roundOff) >= 0.005 && (
             <div className="summary-line"><span>Round Off</span><span>{sums.roundOff > 0 ? '+ ' : '- '}{inr(Math.abs(sums.roundOff))}</span></div>

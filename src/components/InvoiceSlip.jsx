@@ -61,6 +61,8 @@ export default function InvoiceSlip({ inv, settings }) {
   const hallmarkTotal = num(inv.hallmark) || items.reduce((s, it) => s + num(it.hallmark), 0);
   const halfGst = num(inv.gst) / 2;
   const halfPct = num(inv.gstPct) / 2;
+  // GST सीधे रुपयों में डाला गया हो तो बिल पर प्रतिशत नहीं, सिर्फ रकम
+  const gstFlat = inv.gstType === 'flat';
   const taxable = num(inv.subtotal) + num(inv.making) + hallmarkTotal - num(inv.discount);
   const grossTotal = items.reduce((s, it) => s + num(it.grossWeight || it.weight), 0);
   const netTotal = items.reduce((s, it) => s + num(it.weight), 0);
@@ -262,8 +264,8 @@ export default function InvoiceSlip({ inv, settings }) {
               <div className="muted"><span>GST</span><span>लागू नहीं</span></div>
             ) : (
               <>
-                <div><span>CGST @ {halfPct}%</span><span>+ {inr(halfGst)}</span></div>
-                <div><span>SGST @ {halfPct}%</span><span>+ {inr(halfGst)}</span></div>
+                <div><span>CGST{gstFlat ? '' : ` @ ${halfPct}%`}</span><span>+ {inr(halfGst)}</span></div>
+                <div><span>SGST{gstFlat ? '' : ` @ ${halfPct}%`}</span><span>+ {inr(halfGst)}</span></div>
               </>
             )}
             {exchangeVal > 0 && (
