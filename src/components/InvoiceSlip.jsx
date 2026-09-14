@@ -58,6 +58,10 @@ export default function InvoiceSlip({ inv, settings }) {
   const hasHm = items.some((it) => num(it.hallmark) > 0);
   const colCount = hasHm ? 10 : 9;
   const exchangeVal = num(inv.exchange && inv.exchange.value);
+  // नए बिलों में हर पुराना गहना अलग लाइन में; पुराने बिलों में एक ही exchange
+  const exLines = inv.exchangeItems && inv.exchangeItems.length
+    ? inv.exchangeItems
+    : (num(inv.exchange && inv.exchange.weight) > 0 ? [inv.exchange] : []);
   const hallmarkTotal = num(inv.hallmark) || items.reduce((s, it) => s + num(it.hallmark), 0);
   const halfGst = num(inv.gst) / 2;
   const halfPct = num(inv.gstPct) / 2;
@@ -207,13 +211,16 @@ export default function InvoiceSlip({ inv, settings }) {
       {/* ── नीचे: भुगतान, शब्दों में रकम (बाएँ) और जोड़ (दाएँ) ── */}
       <div className="slip-bottom">
         <div className="slip-left">
-          {exchangeVal > 0 && (
+          {exLines.length > 0 && (
             <div className="slip-exch">
               <b>पुराना सोना / Exchange</b>
-              <div>
-                {num(inv.exchange.weight).toFixed(3)} g @ {num(inv.exchange.purity)}% ·
-                कटौती {num(inv.exchange.deduct)}% = <b>{inr(exchangeVal)}</b>
-              </div>
+              {exLines.map((e, i) => (
+                <div key={i}>
+                  {exLines.length > 1 ? `${i + 1}. ` : ''}{e.name ? `${e.name} — ` : ''}
+                  {num(e.weight).toFixed(3)} g @ {num(e.purity)}% · कटौती {num(e.deduct)}% = <b>{inr(e.value)}</b>
+                </div>
+              ))}
+              {exLines.length > 1 && <div><b>कुल / Total = {inr(exchangeVal)}</b></div>}
             </div>
           )}
           {pays.length > 0 && (

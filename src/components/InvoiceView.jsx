@@ -25,6 +25,10 @@ export default function InvoiceView({ inv, settings }) {
   const halfGst = num(inv.gst) / 2;
   // GST सीधे रुपयों में डाला गया हो तो बिल पर प्रतिशत नहीं, सिर्फ रकम
   const gstFlat = inv.gstType === 'flat';
+  // नए बिलों में हर पुराना गहना अलग लाइन में; पुराने बिलों में एक ही exchange
+  const exLines = inv.exchangeItems && inv.exchangeItems.length
+    ? inv.exchangeItems
+    : (num(inv.exchange && inv.exchange.weight) > 0 ? [inv.exchange] : []);
 
   // canvas पर दोगुने resolution में — SVG वाला barcode PDF में नहीं आता था
   useEffect(() => {
@@ -94,10 +98,17 @@ export default function InvoiceView({ inv, settings }) {
           </tbody>
         </table>
       </div>
-      {inv.exchange && inv.exchange.value > 0 && (
-        <p style={{ marginTop: 8, fontSize: 13 }}>
-          पुराना सोना Exchange: {inv.exchange.weight}g @ {inv.exchange.purity}% (कटौती {inv.exchange.deduct}%) = {inr(inv.exchange.value)}
-        </p>
+      {exLines.length > 0 && (
+        <div style={{ marginTop: 8, fontSize: 13 }}>
+          <b>पुराना सोना Exchange:</b>
+          {exLines.map((e, i) => (
+            <div key={i}>
+              {exLines.length > 1 ? `${i + 1}. ` : ''}{e.name ? `${e.name} — ` : ''}
+              {num(e.weight).toFixed(3)}g @ {num(e.purity)}% (कटौती {num(e.deduct)}%) = {inr(e.value)}
+            </div>
+          ))}
+          {exLines.length > 1 && <div><b>कुल = {inr(num(inv.exchange && inv.exchange.value))}</b></div>}
+        </div>
       )}
       <div className="inv-totals">
         <div><span>Subtotal (Metal)</span><span>{inr(inv.subtotal)}</span></div>

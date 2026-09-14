@@ -4,7 +4,7 @@ import { useToast } from '../context/ToastContext';
 import { useModal } from '../context/ModalContext';
 import { todayStr, inr } from '../lib/format';
 import { api } from '../lib/api';
-import { summarizeBill } from '../lib/calc';
+import { summarizeBill, computeExchangeValue } from '../lib/calc';
 import { PAYMENT_MODES, CASH_LIMIT, PAN_LIMIT } from '../lib/bill';
 import { takePendingCustomer } from '../lib/nav';
 import InvoiceModal from '../components/InvoiceModal';
@@ -33,10 +33,12 @@ export default function Billing() {
   const [items, setItems] = useState([emptyItem()]);
   const [saving, setSaving] = useState(false);
 
-  const [exWeight, setExWeight] = useState(0);
-  const [exPurity, setExPurity] = useState(91.6);
-  const [exDeduct, setExDeduct] = useState(2);
-  const [exRate, setExRate] = useState(db.rates.gold || 0);
+  // पुराना सोना — ग्राहक जितने गहने लाए, उतनी लाइनें (हर एक की अपनी शुद्धता और कटौती)
+  const [exItems, setExItems] = useState([]);
+  const newExRow = () => ({ name: '', weight: '', purity: 91.6, deduct: 2, rate: db.rates.gold || 0 });
+  const addExRow = () => setExItems((prev) => [...prev, newExRow()]);
+  const removeExRow = (idx) => setExItems((prev) => prev.filter((_, i) => i !== idx));
+  const updateEx = (idx, patch) => setExItems((prev) => prev.map((e, i) => (i === idx ? { ...e, ...patch } : e)));
 
   const [discType, setDiscType] = useState('flat');
   const [discVal, setDiscVal] = useState(0);
@@ -100,13 +102,20 @@ export default function Billing() {
   const cashVal = Number(pay.cash) || 0;
   const panUp = pan.trim().toUpperCase();
   const custPan = custId ? ((db.customers.find((c) => c.id === custId) || {}).pan || '') : '';
-  const exchange = { weight: exWeight, purity: exPurity, deduct: exDeduct, rate: exRate };
+  const exLines = exItems.map((e) => ({
+    name: (e.name || '').trim(),
+    weight: Number(e.weight) || 0,
+    purity: Number(e.purity) || 0,
+    deduct: Number(e.deduct) || 0,
+    rate: Number(e.rate) || 0,
+  }));
+  const exValid = exLines.filter((e) => e.weight > 0);
   // रुपयों वाला खाना भरा हो तो वही, वरना प्रतिशत वाला; दोनों खाली = GST नहीं
   const gstFlat = String(gstAmtVal).trim() !== '';
   const gstInput = gstMode === 'nongst'
     ? { type: 'pct', value: 0 }
     : gstFlat ? { type: 'flat', value: gstAmtVal } : { type: 'pct', value: gstPctVal || 0 };
-  const sums = summarizeBill(items, db.rates, exchange, discType, discVal, gstInput, paidVal);
+  const sums = summarizeBill(items, db.rates, exLines, discType, discVal, gstInput, paidVal);
   const cashWarn = billType === 'sale' && cashVal >= CASH_LIMIT;
   const panWarn = sums.total > PAN_LIMIT && !(panUp || custPan);
 
@@ -121,10 +130,13 @@ export default function Billing() {
     const badGross = validItems.find((it) => Number(it.grossWeight) > 0 && Number(it.grossWeight) < Number(it.weight));
     if (badGross) { toast(`"${badGross.name}" का Gross वजन, Net वजन से कम नहीं हो सकता`); return; }
     if (validItems.some((it) => Number(it.hallmark) < 0)) { toast('Hallmark charge 0 से कम नहीं हो सकता'); return; }
-    if (Number(exWeight) > 0 && !(Number(exPurity) > 0 && Number(exPurity) <= 100)) {
-      toast('पुराने सोने की Purity 0 से 100% के बीच डालें'); return;
-    }
-    if (!(Number(exDeduct) >= 0 && Number(exDeduct) <= 100)) { toast('कटौती 0 से 100% के बीच डालें'); return; }
+    const exName = (e, i) => (e.name ? `"${e.name}"` : `पुराना सोना ${i + 1}`);
+    const badExPurity = exValid.findIndex((e) => !(e.purity > 0 && e.purity <= 100));
+    if (badExPurity >= 0) { toast(`${exName(exValid[badExPurity], badExPurity)} की Purity 0 से 100% के बीच डालें`); return; }
+    const badExDeduct = exValid.findIndex((e) => !(e.deduct >= 0 && e.deduct <= 100));
+    if (badExDeduct >= 0) { toast(`${exName(exValid[badExDeduct], badExDeduct)} की कटौती 0 से 100% के बीच डालें`); return; }
+    const badExRate = exValid.findIndex((e) => !(e.rate > 0));
+    if (badExRate >= 0) { toast(`${exName(exValid[badExRate], badExRate)} का भाव (Rate) डालें`); return; }
     if (panUp && !PAN_RX.test(panUp)) { toast('PAN नंबर गलत है (जैसे ABCDE1234F)'); return; }
     if (PAYMENT_MODES.some((m) => Number(pay[m.id]) < 0)) { toast('भुगतान की राशि 0 से कम नहीं हो सकती'); return; }
     // भाव 0 हो तो बिल ₹0 का बनता — पहले "आज का Rate" भरवाएं
@@ -158,10 +170,7 @@ export default function Billing() {
         making: Number(it.making) || 0,
         hallmark: Number(it.hallmark) || 0,
       })),
-      exchange: {
-        weight: Number(exWeight) || 0, purity: Number(exPurity) || 0,
-        deduct: Number(exDeduct) || 0, rate: Number(exRate) || 0,
-      },
+      exchangeItems: exValid,
       discountType: discType,
       discountValue: Number(discVal) || 0,
       gstType: gstInput.type,
@@ -181,7 +190,7 @@ export default function Billing() {
       const inv = await mutate(() => api.createInvoice(payload));
       toast(`बिल नं. ${inv.billNo || ''} तैयार हो गया ✔`);
       setItems([emptyItem()]);
-      setExWeight(0); setDiscVal(0); setPay({});
+      setExItems([]); setDiscVal(0); setPay({});
       setCustId(''); setNewName(''); setNewPhone(''); setAddress(''); setPan('');
       openModal(<InvoiceModal inv={inv} settings={db.settings} />, true);
     } catch (e) {
@@ -286,13 +295,34 @@ export default function Billing() {
       </div>
 
       <div className="card">
-        <h3>पुराना सोना Exchange (वैकल्पिक)</h3>
-        <div className="grid grid-4">
-          <div className="field"><label>वजन (g)</label><input type="number" value={exWeight} onChange={(e) => setExWeight(e.target.value)} /></div>
-          <div className="field"><label>Purity %</label><input type="number" list="purity-list" value={exPurity} onChange={(e) => setExPurity(e.target.value)} /></div>
-          <div className="field"><label>कटौती % (wastage)</label><input type="number" value={exDeduct} onChange={(e) => setExDeduct(e.target.value)} /></div>
-          <div className="field"><label>Rate (₹/g)</label><input type="number" value={exRate} onChange={(e) => setExRate(e.target.value)} /></div>
-        </div>
+        <h3>पुराना सोना Exchange (वैकल्पिक)
+          <span className="small-note" style={{ margin: 0 }}> — ग्राहक जितने पुराने गहने लाए, सब अलग-अलग जोड़ें</span>
+        </h3>
+        {exItems.map((e, idx) => {
+          const line = exLines[idx];
+          return (
+            <div className="ex-row" key={idx}>
+              <div className="field" style={{ margin: 0 }}><label>गहना (जैसे पुरानी चूड़ी)</label>
+                <input value={e.name} placeholder="नाम (optional)" onChange={(ev) => updateEx(idx, { name: ev.target.value })} /></div>
+              <div className="field" style={{ margin: 0 }}><label>वजन (g)</label>
+                <input type="number" value={e.weight} onChange={(ev) => updateEx(idx, { weight: ev.target.value })} /></div>
+              <div className="field" style={{ margin: 0 }}><label>Purity %</label>
+                <input type="number" list="purity-list" value={e.purity} onChange={(ev) => updateEx(idx, { purity: ev.target.value })} /></div>
+              <div className="field" style={{ margin: 0 }}><label>कटौती % (wastage)</label>
+                <input type="number" value={e.deduct} onChange={(ev) => updateEx(idx, { deduct: ev.target.value })} /></div>
+              <div className="field" style={{ margin: 0 }}><label>Rate (₹/g)</label>
+                <input type="number" value={e.rate} onChange={(ev) => updateEx(idx, { rate: ev.target.value })} /></div>
+              <div className="ex-value">{inr(computeExchangeValue(line))}</div>
+              <button className="icon-btn" onClick={() => removeExRow(idx)}>✕</button>
+            </div>
+          );
+        })}
+        <button className="btn btn-outline" onClick={addExRow}>+ पुराना गहना जोड़ें</button>
+        {exValid.length > 1 && (
+          <p className="small-note" style={{ marginBottom: 0 }}>
+            कुल {exValid.length} पुराने गहने — <b>{inr(sums.exchangeVal)}</b> बिल में से घटेंगे।
+          </p>
+        )}
       </div>
 
       <div className="card">
