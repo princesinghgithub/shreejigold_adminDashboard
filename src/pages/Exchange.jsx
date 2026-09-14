@@ -16,6 +16,8 @@ export default function Exchange() {
   }
 
   const history = db.invoices.filter((i) => i.exchange && i.exchange.value > 0).slice().reverse();
+  // नए बिलों में हर पुराना गहना अलग लाइन में — पुराने बिलों में एक ही exchange
+  const piecesOf = (i) => (i.exchangeItems && i.exchangeItems.length ? i.exchangeItems : [i.exchange]);
 
   return (
     <div>
@@ -38,13 +40,18 @@ export default function Exchange() {
         <div className="tbl-wrap">
           <table>
             <tbody>
-              <tr><th>तारीख</th><th>Customer</th><th>वजन</th><th>Purity</th><th>कटौती</th><th>Value</th></tr>
-              {history.length ? history.map((i) => (
-                <tr key={i.id}>
-                  <td>{fmtDate(i.date)}</td><td>{i.customerName}</td><td>{i.exchange.weight}g</td>
-                  <td>{i.exchange.purity}%</td><td>{i.exchange.deduct}%</td><td>{inr(i.exchange.value)}</td>
+              <tr><th>तारीख</th><th>Customer</th><th>गहना</th><th>वजन</th><th>Purity</th><th>कटौती</th><th>Value</th></tr>
+              {history.length ? history.flatMap((i) => piecesOf(i).map((e, k) => (
+                <tr key={i.id + '-' + k}>
+                  <td>{k === 0 ? fmtDate(i.date) : ''}</td>
+                  <td>{k === 0 ? i.customerName : ''}</td>
+                  <td>{e.name || '—'}</td>
+                  <td>{Number(e.weight) || 0}g</td>
+                  <td>{Number(e.purity) || 0}%</td>
+                  <td>{Number(e.deduct) || 0}%</td>
+                  <td>{inr(e.value)}</td>
                 </tr>
-              )) : <tr><td colSpan={6} className="empty">कोई Exchange history नहीं</td></tr>}
+              ))) : <tr><td colSpan={7} className="empty">कोई Exchange history नहीं</td></tr>}
             </tbody>
           </table>
         </div>

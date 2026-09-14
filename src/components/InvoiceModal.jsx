@@ -7,7 +7,7 @@ import { useData } from '../context/DataContext';
 import { useToast } from '../context/ToastContext';
 import { api } from '../lib/api';
 import { fmtDate, inr } from '../lib/format';
-import { billNoOf, paymentRows, PAYMENT_MODES, CASH_LIMIT } from '../lib/bill';
+import { billNoOf, fmtTime, paymentRows, PAYMENT_MODES, CASH_LIMIT } from '../lib/bill';
 
 // backTo = { label, onClick } — ग्राहक के खाते से खुला बिल "वापस" दबाकर वहीं लौट आए
 export default function InvoiceModal({ inv: initialInv, settings, backTo }) {
@@ -28,19 +28,36 @@ export default function InvoiceModal({ inv: initialInv, settings, backTo }) {
     const label = inv.gstMode === 'nongst' ? 'Estimate (Non-GST)' : (inv.type === 'sale' ? 'बिक्री बिल' : 'खरीद बिल');
     const shop = settings.shopNameHindi || settings.shopName;
     const pays = paymentRows(inv);
+    const num = (v) => Number(v) || 0;
+    const isNonGst = inv.gstMode === 'nongst';
+    const time = fmtTime(inv.createdAt);
+    // छपे हुए बिल जैसा ही ब्योरा — पुराना सोना, हॉलमार्क, GST, सब
+    const exLines = inv.exchangeItems && inv.exchangeItems.length
+      ? inv.exchangeItems
+      : (num(inv.exchange && inv.exchange.weight) > 0 ? [inv.exchange] : []);
+    const exTotal = num(inv.exchange && inv.exchange.value);
+    const hallmark = num(inv.hallmark);
     const lines = [
       `*${shop}*`,
       `${label} #${billNoOf(inv)}`,
-      `तारीख: ${fmtDate(inv.date)}`,
+      `तारीख: ${fmtDate(inv.date)}${time ? ` · ${time}` : ''}`,
       // GST बिल पर दुकान का GSTIN (Estimate / Non-GST पर नहीं)
-      inv.gstMode !== 'nongst' && settings.gstin ? `GSTIN: ${settings.gstin}` : '',
+      !isNonGst && settings.gstin ? `GSTIN: ${settings.gstin}` : '',
       `Customer: ${inv.customerName}`,
       '---',
-      ...inv.items.map((it) => `${it.name}${it.huid ? ` (HUID ${it.huid})` : ''} - ${it.weight}g (${it.purity}%) = ₹${Number(it.itemTotal || 0).toFixed(0)}`),
+      ...inv.items.map((it) => `${it.name}${it.huid ? ` (HUID ${it.huid})` : ''} - ${num(it.weight)}g (${num(it.purity)}%) = ${inr(it.itemTotal)}`),
+      exLines.length ? '--- पुराना सोना ---' : '',
+      ...exLines.map((e, i) => `${exLines.length > 1 ? `${i + 1}. ` : ''}${e.name ? `${e.name} — ` : ''}${num(e.weight)}g @ ${num(e.purity)}%${num(e.deduct) ? ` (कटौती ${num(e.deduct)}%)` : ''} = ${inr(e.value)}`),
       '---',
-      `कुल राशि: ₹${Number(inv.total || 0).toFixed(0)}`,
-      Number(inv.paid) > 0 ? `प्राप्त: ₹${Number(inv.paid).toFixed(0)}${pays.length ? ` (${pays.map((p) => `${p.label} ₹${Number(p.amount).toFixed(0)}`).join(', ')})` : ''}` : '',
-      `${inv.due >= 0 ? 'शेष देय' : 'एडवांस'}: ₹${Math.abs(Number(inv.due || 0)).toFixed(0)}`,
+      `धातु मूल्य: ${inr(inv.subtotal)}`,
+      `मजदूरी: ${inr(inv.making)}`,
+      hallmark > 0 ? `हॉलमार्क: ${inr(hallmark)}` : '',
+      num(inv.discount) > 0 ? `छूट: - ${inr(inv.discount)}` : '',
+      isNonGst ? '' : `GST${inv.gstType === 'flat' ? '' : ` (${num(inv.gstPct)}%)`}: + ${inr(inv.gst)}`,
+      exTotal > 0 ? `पुराना सोना: - ${inr(exTotal)}` : '',
+      `*कुल राशि: ${inr(inv.total)}*`,
+      num(inv.paid) > 0 ? `प्राप्त: ${inr(inv.paid)}${pays.length ? ` (${pays.map((p) => `${p.label} ${inr(p.amount)}`).join(', ')})` : ''}` : '',
+      `${num(inv.due) >= 0 ? 'शेष देय' : 'एडवांस'}: ${inr(Math.abs(num(inv.due)))}`,
       'धन्यवाद!',
       [settings.propName, settings.shopPhone].filter(Boolean).join(' — '),
     ].filter(Boolean);
