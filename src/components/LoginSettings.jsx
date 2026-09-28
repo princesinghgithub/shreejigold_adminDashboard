@@ -2,10 +2,66 @@ import { useEffect, useState } from 'react';
 import { useToast } from '../context/ToastContext';
 import { api, setToken } from '../lib/api';
 import { SECURITY_QUESTIONS } from './Login';
+import BackupCodesList from './BackupCodesList';
 
 const CUSTOM = '__custom__';
 const MIN_USERID = 3;
-const MIN_PASSWORD = 4;
+const MIN_PASSWORD = 8;
+
+/** मालिक / Admin — Google Authenticator की हालत और नए backup codes */
+function TwoFactorBox() {
+  const [st, setSt] = useState(null);
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [fresh, setFresh] = useState(null);
+
+  const load = () => api.twofaStatus().then(setSt).catch(() => {});
+  useEffect(() => { load(); }, []);
+
+  async function regenerate() {
+    if (busy) return;
+    if (!/^\d{6}$/.test(code.trim())) { setErr('Authenticator का 6 अंकों का कोड डालें'); return; }
+    setBusy(true); setErr('');
+    try {
+      const r = await api.twofaNewBackupCodes(code.trim());
+      setFresh(r.backupCodes);
+      setCode('');
+      load();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  const low = st && st.enabled && st.backupCodesLeft <= 3;
+
+  return (
+    <div>
+      <h4>Google Authenticator</h4>
+      <p className="small-note" style={{ marginTop: 0 }}>
+        {!st ? '…' : st.enabled ? (
+          <>चालू ✔ · backup codes बचे: <b style={low ? { color: 'var(--red)' } : undefined}>{st.backupCodesLeft}</b>
+            {low && <span style={{ color: 'var(--red)' }}> — नए बना लें</span>}</>
+        ) : 'अगले लॉगिन पर लगाने को कहा जाएगा।'}
+      </p>
+      {fresh ? (
+        <BackupCodesList codes={fresh} doneLabel="हो गया" onDone={() => setFresh(null)} />
+      ) : st && st.enabled && (
+        <>
+          <div className="field"><label>नए backup codes (पुराने सब बंद हो जाएंगे) — Authenticator का कोड</label>
+            <input type="text" className="code-input" inputMode="numeric" value={code} placeholder="6 अंक"
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} autoComplete="one-time-code" /></div>
+          <button className="btn btn-outline" disabled={busy} onClick={regenerate}>
+            {busy ? 'बन रहे हैं…' : 'नए backup codes बनाएं'}
+          </button>
+          <div className="err">{err}</div>
+        </>
+      )}
+      <p className="small-note">
+        फ़ोन खो गया और backup codes भी नहीं?{' '}
+        {'मालिक: backend में npm run reset-2fa चलाएं। Admin: मालिक "Users / Staff" पेज से हटा देंगे।'}
+      </p>
+    </div>
+  );
+}
 
 export default function LoginSettings() {
   const toast = useToast();
@@ -39,6 +95,7 @@ export default function LoginSettings() {
 
   if (!me) return null;
   const isOwner = me.role === 'owner';
+  const has2fa = isOwner || me.role === 'admin';
   const question = qChoice === CUSTOM ? qCustom : qChoice;
 
   async function run(fn, okMsg, clear) {
@@ -87,9 +144,10 @@ export default function LoginSettings() {
           <div className="field"><label>नया पासवर्ड दोबारा</label>
             <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" /></div>
           <button className="btn btn-outline" disabled={busy} onClick={() => run(async () => {
+            if (newPass.trim().length < MIN_PASSWORD) throw new Error(`नया पासवर्ड कम से कम ${MIN_PASSWORD} अक्षर का रखें`);
             if (newPass.trim() !== confirm.trim()) throw new Error('दोनों नए पासवर्ड एक जैसे नहीं हैं');
             const r = await api.changePassword(oldPass, newPass);
-            // staff / admin का पासवर्ड बदलने पर पुराने लॉगिन बंद होते हैं — सर्वर नया token देता है
+            // पासवर्ड बदलने पर बाकी जगह के लॉगिन बंद होते हैं — इस device के लिए सर्वर नया token देता है
             if (r && r.token) setToken(r.token);
           }, 'पासवर्ड बदल गया ✔', () => { setOldPass(''); setNewPass(''); setConfirm(''); })}>
             पासवर्ड बदलें
@@ -114,6 +172,8 @@ export default function LoginSettings() {
             </button>
           </div>
         )}
+
+        {has2fa && <TwoFactorBox />}
 
         {isOwner && (
           <div>

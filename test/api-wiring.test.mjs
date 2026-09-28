@@ -11,6 +11,7 @@ globalThis.window = {
 };
 
 const { api, setToken, getToken, ApiError, setUnauthorizedHandler } = await import('../src/lib/api.js');
+const { rememberSecret, nextCode } = await import('./twofa-helper.mjs');
 
 let pass = 0, fail = 0;
 const check = (name, cond, extra) => {
@@ -21,6 +22,19 @@ const grab = async (fn) => {
   try { return { ok: true, data: await fn() }; } catch (e) { return { ok: false, err: e }; }
 };
 const emsg = (r) => (r.err ? r.err.message : '');
+
+/** मालिक का लॉगिन — पासवर्ड के बाद Authenticator (पहली बार QR वाला setup) */
+async function finish2fa(r) {
+  if (!r.ok || !r.data.step) return r;
+  const { step, challenge, secret } = r.data;
+  if (step === 'setup') {
+    rememberSecret(secret);
+    const code = await nextCode();
+    return grab(() => api.twofaSetup(challenge, code));
+  }
+  const code = await nextCode();
+  return grab(() => api.twofaVerify(challenge, code));
+}
 
 console.log('\n-- सर्वर से जुड़ना --');
 let r = await grab(() => api.health());
@@ -37,13 +51,42 @@ if (!r.data.isSetup) {
   r = await grab(() => api.setup({ userId: 'chhotelal', password: 'soniji123', question: 'गाँव?', answer: 'खतखरी' }));
   check('setup ok', r.ok && r.data.token, emsg(r));
 } else {
-  r = await grab(() => api.login('chhotelal', 'soniji123'));
+  r = await finish2fa(await grab(() => api.login('chhotelal', 'soniji123')));
   check('login ok', r.ok && r.data.token, emsg(r));
 }
 setToken(r.data.token);
 check('टोकन सेव हुआ', Boolean(getToken()));
 r = await grab(() => api.me());
 check('me', r.ok && r.data.user.name === 'chhotelal', r.data);
+
+console.log('\n-- Google Authenticator (मालिक) --');
+{
+  let kicked = false;
+  setUnauthorizedHandler(() => { kicked = true; });
+  r = await grab(() => api.login('chhotelal', 'soniji123'));
+  check('login पर token नहीं, दूसरा कदम', r.ok && !r.data.token && ['setup', 'totp'].includes(r.data.step) && r.data.challenge, r.data);
+  const first = r;
+  if (first.data.step === 'setup') {
+    check('पहली बार QR का पता', first.data.otpauthUrl.startsWith('otpauth://totp/'), first.data);
+    r = await grab(() => api.twofaSetup(first.data.challenge, '000000'));
+    check('गलत कोड: 400, कोशिश बाकी बताए', !r.ok && r.err.status === 400 && r.err.message.includes('कोशिश'), emsg(r));
+  }
+  r = await finish2fa(first);
+  check('कोड से token', r.ok && r.data.token && r.data.role === 'owner', emsg(r));
+  if (first.data.step === 'setup') check('setup पर 10 backup codes', r.data.backupCodes.length === 10, r.data);
+  setToken(r.data.token);
+  r = await grab(() => api.twofaStatus());
+  check('2FA status चालू', r.ok && r.data.enabled === true, emsg(r));
+  r = await grab(() => api.twofaVerify('a'.repeat(64), '123456'));
+  check('समय खत्म वाला challenge: details.code पहुँचा', !r.ok && r.err.status === 401 && r.err.details?.code === 'CHALLENGE_EXPIRED', r.err?.details);
+  r = await grab(() => api.twofaNewBackupCodes('000000'));
+  check('नए backup codes: गलत कोड -> 400', !r.ok && r.err.status === 400, emsg(r));
+  const code = await nextCode();
+  r = await grab(() => api.twofaNewBackupCodes(code));
+  check('नए backup codes बने', r.ok && r.data.backupCodes.length === 10, emsg(r));
+  check('लॉगिन के कदमों पर ऐप लॉगआउट नहीं हुआ', !kicked, kicked);
+  setUnauthorizedHandler(null);
+}
 
 console.log('\n-- साफ़ शुरुआत --');
 await grab(() => api.clearAll());
@@ -160,10 +203,13 @@ r = await grab(() => api.forgotReset('chhotelal', 'गलत', 'naya1234'));
 check('गलत जवाब मना', !r.ok && r.err.status === 401, emsg(r));
 r = await grab(() => api.forgotReset('chhotelal', ' खतखरी ', 'naya1234'));
 check('सही जवाब पर रीसेट', r.ok, emsg(r));
-r = await grab(() => api.login('chhotelal', 'naya1234'));
+r = await finish2fa(await grab(() => api.login('chhotelal', 'naya1234')));
 check('नए पासवर्ड से लॉगिन', r.ok && r.data.token, emsg(r));
 setToken(r.data.token);
-await grab(() => api.changePassword('naya1234', 'soniji123')); // वापस पुराना, ताकि दोबारा चलाया जा सके
+// वापस पुराना, ताकि दोबारा चलाया जा सके. पासवर्ड बदलते ही पुराने लॉगिन बंद — नया token मिलता है
+r = await grab(() => api.changePassword('naya1234', 'soniji123'));
+check('पासवर्ड बदला, नया token मिला', r.ok && r.data.token, emsg(r));
+setToken(r.data.token);
 
 console.log('\n-- टोकन गलत हो तो --');
 {

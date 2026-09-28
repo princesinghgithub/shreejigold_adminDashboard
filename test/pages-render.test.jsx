@@ -22,6 +22,8 @@ import InvoiceSlip from '../src/components/InvoiceSlip.jsx';
 import InvoiceView from '../src/components/InvoiceView.jsx';
 import LoginSettings from '../src/components/LoginSettings.jsx';
 
+import { rememberSecret, nextCode } from './twofa-helper.mjs';
+
 const BASE = process.env.API || 'http://localhost:4000/api';
 
 let pass = 0, fail = 0;
@@ -51,7 +53,13 @@ if (!status.isSetup) {
     userId: 'chhotelal', password: 'soniji123', question: 'गाँव?', answer: 'खतखरी',
   })).token;
 } else {
-  token = (await call('POST', '/auth/login', { userId: 'chhotelal', password: 'soniji123' })).token;
+  // मालिक — पासवर्ड के बाद Google Authenticator
+  let r = await call('POST', '/auth/login', { userId: 'chhotelal', password: 'soniji123' });
+  if (r.step) {
+    if (r.step === 'setup') rememberSecret(r.secret);
+    r = await call('POST', r.step === 'setup' ? '/auth/2fa/setup' : '/auth/2fa/verify', { challenge: r.challenge, code: await nextCode() });
+  }
+  token = r.token;
 }
 if (!token) { console.log('लॉगिन नहीं हुआ — सर्वर देखें'); process.exit(1); }
 

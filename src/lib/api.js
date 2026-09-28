@@ -114,6 +114,13 @@ export const api = {
   setSecurityQuestion: (password, question, answer) =>
     post('/auth/security-question', { password, question, answer }),
 
+  // ---- Google Authenticator (मालिक / Admin) ----
+  // login() मालिक/Admin के लिए { step: 'totp' | 'setup', challenge } लौटाता है, फिर इनमें से एक
+  twofaVerify: (challenge, code) => post('/auth/2fa/verify', { challenge, code }, { noAuth: true }),
+  twofaSetup: (challenge, code) => post('/auth/2fa/setup', { challenge, code }, { noAuth: true }),
+  twofaStatus: () => get('/auth/2fa/status'),
+  twofaNewBackupCodes: (code) => post('/auth/2fa/backup-codes', { code }),
+
   // ---- पूरा डेटा एक साथ (ऐप का db इसी shape में है) ----
   snapshot: () => get('/backup'),
 

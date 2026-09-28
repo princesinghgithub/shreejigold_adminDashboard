@@ -29,7 +29,7 @@ function UserForm({ user, onSaved }) {
     if (id.length < 3) { toast('यूज़र ID कम से कम 3 अक्षर का रखें'); return; }
     if (/\s/.test(id)) { toast('यूज़र ID में जगह (space) न रखें'); return; }
     if (!user || password) {
-      if (password.trim().length < 4) { toast('पासवर्ड कम से कम 4 अक्षर का रखें'); return; }
+      if (password.trim().length < 8) { toast('पासवर्ड कम से कम 8 अक्षर का रखें'); return; }
       if (password.trim() !== confirm.trim()) { toast('दोनों पासवर्ड एक जैसे नहीं हैं'); return; }
     }
 
@@ -111,6 +111,16 @@ export default function Users() {
     } catch (e) { toast(e.message); }
   }
 
+  // Admin का फ़ोन खो गया — अगले लॉगिन पर वह नया QR scan करेगा
+  async function reset2fa(u) {
+    if (!window.confirm(`${u.name || u.userId} का Google Authenticator हटाएं? वे तुरंत लॉगआउट होंगे और अगले लॉगिन पर नया QR scan करेंगे।`)) return;
+    try {
+      await api.updateUser(u.id, { reset2fa: true });
+      toast('Authenticator हटा दिया — अगले लॉगिन पर नया लगेगा');
+      load();
+    } catch (e) { toast(e.message); }
+  }
+
   async function remove(u) {
     if (!window.confirm(`${u.name || u.userId} (${u.userId}) का खाता हमेशा के लिए हटाएं? बिल, ग्राहक जैसा कोई डेटा नहीं मिटेगा।`)) return;
     try {
@@ -133,7 +143,7 @@ export default function Users() {
       <p className="small-note" style={{ marginTop: 0, marginBottom: 12 }}>
         दुकान पर काम करने वालों के अलग यूज़र ID और पासवर्ड बनाएं। <b>Staff</b> बिलिंग, ग्राहक, stock, rate और reports
         चला सकते हैं; <b>Admin</b> इसके साथ users और दुकान की settings भी। खाता बंद करते या पासवर्ड बदलते ही
-        वह user तुरंत लॉगआउट हो जाता है।
+        वह user तुरंत लॉगआउट हो जाता है। मालिक और Admin को लॉगिन पर <b>Google Authenticator</b> का कोड भी डालना होता है।
       </p>
       {err && <p className="err">{err}</p>}
 
@@ -159,12 +169,20 @@ export default function Users() {
                   <tr key={u.id}>
                     <td><b>{u.name || '—'}</b></td>
                     <td>{u.userId}</td>
-                    <td><span className={'badge badge-' + u.role}>{ROLE_LABEL[u.role] || u.role}</span></td>
+                    <td>
+                      <span className={'badge badge-' + u.role}>{ROLE_LABEL[u.role] || u.role}</span>
+                      {u.role === 'admin' && (
+                        <div className="small-note" style={{ marginTop: 4 }}>
+                          {u.twoFactor ? 'Authenticator ✔' : 'Authenticator अगले लॉगिन पर'}
+                        </div>
+                      )}
+                    </td>
                     <td><span className={'badge ' + (u.active ? 'badge-paid' : 'badge-hidden')}>{u.active ? 'चालू' : 'बंद'}</span></td>
                     <td className="lead-when">{whenLabel(u.lastLoginAt)}</td>
                     <td className="row-actions">
                       <button className="icon-btn" onClick={() => openModal(<UserForm user={u} onSaved={load} />)}>Edit / पासवर्ड</button>
                       <button className="icon-btn" onClick={() => toggleActive(u)}>{u.active ? 'बंद करें' : 'चालू करें'}</button>
+                      {u.twoFactor && <button className="icon-btn" onClick={() => reset2fa(u)}>Authenticator हटाएं</button>}
                       <button className="icon-btn" onClick={() => remove(u)}>हटाएं</button>
                     </td>
                   </tr>
